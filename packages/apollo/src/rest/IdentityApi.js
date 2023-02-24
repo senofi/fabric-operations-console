@@ -16,6 +16,9 @@
 import _ from 'lodash';
 import StitchApi from './StitchApi';
 import UserSettingsRestApi from './UserSettingsRestApi';
+import EncryptedLocalStoragePersistenceProvider from '../service/EncryptedLocalStoragePersistenceProvider';
+import VaultPersistenceProvider from '../service/VaultPersistenceProvider';
+// TODO: Check the usage of this module, it most probably has to be moved in the persistence providers
 import { EventsRestApi } from './EventsRestApi';
 const naturalSort = require('javascript-natural-sort');
 
@@ -52,21 +55,16 @@ class IdentityApi {
 
 	static async load() {
 		const key = await IdentityApi.getKey();
-		const data = localStorage.getItem(key);
-		if (data) {
-			IdentityApi.identityData = await StitchApi.decrypt(data);
-		} else {
-			IdentityApi.identityData = {};
-		}
+		IdentityApi.identityData = await VaultPersistenceProvider.get(key);
 		return IdentityApi.identityData;
 	}
 
 	static async save() {
 		const key = await IdentityApi.getKey();
-		const encrypted = await StitchApi.encrypt(IdentityApi.identityData);
-		localStorage.setItem(key, encrypted);
+		await VaultPersistenceProvider.save(key, IdentityApi.identityData);
 	}
 
+  // TODO: Review this method and adjust to vault integration
 	// delete/remove all identity data
 	static async clear() {
 		IdentityApi.identityData = {};
