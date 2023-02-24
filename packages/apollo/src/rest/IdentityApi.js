@@ -17,6 +17,8 @@ import _ from 'lodash';
 import StitchApi from './StitchApi';
 import UserSettingsRestApi from './UserSettingsRestApi';
 import { EventsRestApi } from './EventsRestApi';
+import EncryptedLocalStoragePersistenceProvider from '../service/EncryptedLocalStoragePersistenceProvider';
+import VaultPersistenceProvider from '../service/VaultPersistenceProvider';
 const naturalSort = require('javascript-natural-sort');
 
 const LOCAL_STORAGE_KEY = 'ibp_identities';
@@ -52,19 +54,18 @@ class IdentityApi {
 
 	static async load() {
 		const key = await IdentityApi.getKey();
-		const data = localStorage.getItem(key);
-		if (data) {
-			IdentityApi.identityData = await StitchApi.decrypt(data);
-		} else {
-			IdentityApi.identityData = {};
-		}
+		IdentityApi.identityData = await VaultPersistenceProvider.get(key);
+		// IdentityApi.identityData = await EncryptedLocalStoragePersistenceProvider.get(key);
+		console.log("User info: ", IdentityApi.userInfo);
+		console.log("Identity data: ", IdentityApi.identityData);
+		console.log("Identity data json: ", JSON.stringify(IdentityApi.identityData));
 		return IdentityApi.identityData;
 	}
 
 	static async save() {
 		const key = await IdentityApi.getKey();
-		const encrypted = await StitchApi.encrypt(IdentityApi.identityData);
-		localStorage.setItem(key, encrypted);
+		// await EncryptedLocalStoragePersistenceProvider.save(key, IdentityApi.identityData);
+		await VaultPersistenceProvider.save(key, IdentityApi.identityData);
 	}
 
 	// delete/remove all identity data
