@@ -8,7 +8,6 @@ class EncryptedIdentityLocalStorage {
 
 	async get(key) {
 		const data = localStorage.getItem(key);
-		console.log(data)
 		if (data) {
 			const decrypted = await StitchApi.decrypt(data);
 			console.log(decrypted)
@@ -18,7 +17,6 @@ class EncryptedIdentityLocalStorage {
 	}
 
 	async removeIdentity(name, key, data) {
-		console.log('removeIdentity', name, key, data);
 		delete data[name];
 		return this.save(key, data);
 	}
