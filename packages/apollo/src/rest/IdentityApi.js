@@ -16,6 +16,7 @@
 import _ from 'lodash';
 import StitchApi from './StitchApi';
 import UserSettingsRestApi from './UserSettingsRestApi';
+import IdentityStoreFactory from '../identity_store/IdentityStoreFactory';
 import EncryptedLocalStoragePersistenceProvider from '../service/EncryptedLocalStoragePersistenceProvider';
 import VaultPersistenceProvider from '../service/VaultPersistenceProvider';
 // TODO: Check the usage of this module, it most probably has to be moved in the persistence providers
@@ -27,6 +28,7 @@ const LOCAL_STORAGE_KEY = 'ibp_identities';
 class IdentityApi {
 	static userInfo = null;
 	static identityData = null;
+	static store = IdentityStoreFactory.getInstance()
 
 	static PEER_NODE_TYPE = 'peers';
 	static CA_NODE_TYPE = 'cas';
@@ -55,13 +57,13 @@ class IdentityApi {
 
 	static async load() {
 		const key = await IdentityApi.getKey();
-		IdentityApi.identityData = await VaultPersistenceProvider.get(key);
+		IdentityApi.identityData = await IdentityApi.store.get(key);
 		return IdentityApi.identityData;
 	}
 
 	static async save() {
 		const key = await IdentityApi.getKey();
-		await VaultPersistenceProvider.save(key, IdentityApi.identityData);
+		return IdentityApi.store.save(key, IdentityApi.identityData);
 	}
 
   // TODO: Review this method and adjust to vault integration
@@ -166,6 +168,9 @@ class IdentityApi {
 		if (!IdentityApi.identityData[name]) {
 			throw String('identity does not exists');
 		} else {
+			const key = await IdentityApi.getKey();
+			await IdentityApi.store.removeIdentity(name, key, IdentityApi.identityData);
+			await IdentityApi.load();
 			delete IdentityApi.identityData[name];
 			await IdentityApi.save();
 
