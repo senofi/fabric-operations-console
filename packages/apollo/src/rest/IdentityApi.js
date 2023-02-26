@@ -16,9 +16,8 @@
 import _ from 'lodash';
 import StitchApi from './StitchApi';
 import UserSettingsRestApi from './UserSettingsRestApi';
+import IdentityStoreFactory from '../identity_store/IdentityStoreFactory';
 import { EventsRestApi } from './EventsRestApi';
-import EncryptedLocalStoragePersistenceProvider from '../service/EncryptedLocalStoragePersistenceProvider';
-import VaultPersistenceProvider from '../service/VaultPersistenceProvider';
 const naturalSort = require('javascript-natural-sort');
 
 const LOCAL_STORAGE_KEY = 'ibp_identities';
@@ -26,6 +25,7 @@ const LOCAL_STORAGE_KEY = 'ibp_identities';
 class IdentityApi {
 	static userInfo = null;
 	static identityData = null;
+	static store = IdentityStoreFactory.getInstance()
 
 	static PEER_NODE_TYPE = 'peers';
 	static CA_NODE_TYPE = 'cas';
@@ -54,18 +54,13 @@ class IdentityApi {
 
 	static async load() {
 		const key = await IdentityApi.getKey();
-		IdentityApi.identityData = await VaultPersistenceProvider.get(key);
-		// IdentityApi.identityData = await EncryptedLocalStoragePersistenceProvider.get(key);
-		console.log("User info: ", IdentityApi.userInfo);
-		console.log("Identity data: ", IdentityApi.identityData);
-		console.log("Identity data json: ", JSON.stringify(IdentityApi.identityData));
+		IdentityApi.identityData = await IdentityApi.store.get(key);
 		return IdentityApi.identityData;
 	}
 
 	static async save() {
 		const key = await IdentityApi.getKey();
-		// await EncryptedLocalStoragePersistenceProvider.save(key, IdentityApi.identityData);
-		await VaultPersistenceProvider.save(key, IdentityApi.identityData);
+		return IdentityApi.store.save(key, IdentityApi.identityData);
 	}
 
 	// delete/remove all identity data
@@ -169,8 +164,8 @@ class IdentityApi {
 		if (!IdentityApi.identityData[name]) {
 			throw String('identity does not exists');
 		} else {
-			delete IdentityApi.identityData[name];
-			await IdentityApi.save();
+      const key = await IdentityApi.getKey();
+      await IdentityApi.store.removeIdentity(name, key, IdentityApi.identityData);
 
 			try {
 				EventsRestApi.recordActivity({ status: 'success', log: 'removing identity from user\'s  wallet' });
@@ -178,6 +173,7 @@ class IdentityApi {
 				console.error('unable to record removing the identity', e);
 			}
 
+			await IdentityApi.load();
 			return IdentityApi.getArray();
 		}
 	}

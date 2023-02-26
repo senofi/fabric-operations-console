@@ -33,7 +33,11 @@ tags:
   - name: Administer the console
     description: APIs to change or monitor the Fabric Operations console.
   - name: Download examples
-    description: APIs to get postman collections and OpenAPI files.
+    description: APIs to get postman collections and swagger files.
+  - name: IBP Software APIs
+    description: APIs that are only available for IBP Software (OpenShift Container Platform or IBM Cloud Private)
+  - name: Manage identities in Vault
+    description: APIs to get, create, edit, or delete identities in Vault.
 #
 #
 #
@@ -4919,57 +4923,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/Bad'
 
-  /ak/api/v3/configblocks/{id}:
-    post:
-      tags:
-        - Manage component
-      summary: Get a single config block tx
-      description: Create Channel with single config block
-      operationId: create_channel
-      parameters:
-        - $ref: "#/components/parameters/PathTxId"
-      requestBody:
-        description: The action to perform.
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/StoreChannelConfigBlock"
-        required: true
-      x-sdk-operations:
-        request-examples:
-          curl:
-            - name: Example request
-              example:
-                - type: code
-                  lang: curl
-                  source:
-                    - |-
-                      curl -X POST "https://{REPLACE_HOSTNAME_AND_PORT}/api/v[123]/configblocks/{tx_id}" \
-                      -H "Content-Type: application/json" \
-                      -H "Authorization: Bearer {Access-Token}" \
-                      -d "{
-                            \"channel": "mychannel",
-                            \"block_b64": "string"
-                          }"
-      responses:
-        200:
-          description: Channel created successfully.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/StoreChannelConfigBlockResponse"
-        401:
-          description: Request is unauthorized (invalid credentials).
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Unauthorized"
-        403:
-          description: Request is bad (invalid syntax).
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/BadRequest"
   #
   #
   #
@@ -8756,6 +8709,24 @@ components:
           description: The Kubernetes zone of this component's deployment. [Available on ca/peer/orderer components w/query parameter 'deployment_attrs']
           example: '-'
 
+    IdentitiesDto:
+      type: object
+      description: Contains identity objects. An identity object contains certificate and price key data.
+      additionalProperties:
+        type: object
+        $ref: '#/components/schemas/IdentityDto'
+
+    IdentityDto:
+      type: object
+      description: Identity object. Contains certificate and private key.
+      properties:
+        cert:
+          type: string
+          description: Contains the certificate.
+        private_key:
+          type: string
+          description: The private key of the identity
+
     PeerResponse:
       type: object
       description: Contains the details of a peer.
@@ -10316,6 +10287,20 @@ components:
           enum:
             - missing
             - deleted
+
+    BaseErrorResponse:
+      type: object
+      description: Base error response to be used for common errors.
+      properties:
+        statusCode:
+          type: number
+          example: 404
+        msg:
+          type: string
+          example: Error while deleting identity secret with name <secret name>.
+        reason:
+          type: string
+          description: The original error or some other clarifying information.
 
     EmptyArrayResponse:
       type: object
