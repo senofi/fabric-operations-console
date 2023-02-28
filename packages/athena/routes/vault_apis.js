@@ -147,24 +147,6 @@ module.exports = function (logger, ev, t) {
 		res.status(200).json({ errors });
 	};
 
-	const deleteIdentityFromVaultHandler = async (req, res) => {
-		const name = req.params.name;
-
-		try {
-			await vault.delete(`${vaultIdentitiesPath}/test_org_lyubo2/${name}`);
-		} catch (error) {
-			const msg = `Error while deleting identity secret with name ${name} in Vault!`;
-			logger.error(`${msg} Error: ${error}`);
-			res.status(t.ot_misc.get_code(error)).json({
-				msg,
-				reason: error
-			});
-			return;
-		}
-
-		res.status(204).send();
-	};
-
 	// Routes definition
 
 	app.get(
@@ -188,11 +170,5 @@ module.exports = function (logger, ev, t) {
 		upsertIdentitiesToVaultHandler
 	);
 
-	app.delete(
-		'/api/v[23]/vault/identity/:name',
-		t.middleware.verify_view_action_ak,
-		checkIfVaultInitialisedMiddleware,
-		deleteIdentityFromVaultHandler
-	);
 	return app;
 };
