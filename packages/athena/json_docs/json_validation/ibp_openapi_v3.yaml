@@ -4923,6 +4923,143 @@ paths:
               schema:
                 $ref: '#/components/schemas/Bad'
 
+  /ak/api/v3/vault/identity:
+    get:
+      tags:
+        - Manage identities in Vault
+      summary: Get all identities from Vault.
+      description: Get all identities stored in Vault.
+      operationId: get_identities
+      x-ibm-events:
+        events:
+          - name: blockchain.identities.read
+      responses:
+        200:
+          description: Request was successful.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentitiesDto'
+        401:
+          description: Request is unauthorized (invalid credentials).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Unauthorized'
+        403:
+          description: Request is forbidden (credentials lack permission).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Forbidden'
+        '4XX':
+          description: Other error responses.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseErrorResponse'
+        '5XX':
+          description: Internal server error responses.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseErrorResponse'
+
+    put:
+      tags:
+        - Manage identities in Vault
+      summary: Create new or update existing identities in Vault.
+      description: Creates or updates all provided identities in Vault.
+      operationId: create_update_identities
+      requestBody:
+        description: Identies payload.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IdentitiesDto'
+      x-ibm-events:
+        events:
+          - name: blockchain.identity.save
+      responses:
+        204:
+          description: Request was successful. No content.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentitiesDto'
+        401:
+          description: Request is unauthorized (invalid credentials).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Unauthorized'
+        403:
+          description: Request is forbidden (credentials lack permission).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Forbidden'
+        '4XX':
+          description: Other error responses.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseErrorResponse'
+        '5XX':
+          description: Internal server error responses.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseErrorResponse'
+
+  /ak/api/v3/vault/identity/{name}:
+    get:
+      tags:
+        - Manage identities in Vault
+      summary: Get identity data by secret name
+      description: Get the identity data by the name of the secret where the identity is stored.
+      operationId: get_identity
+      parameters:
+        - in: path
+          name: name
+          description: The name of the identity.
+          required: true
+          schema:
+            type: string
+      x-ibm-events:
+        events:
+          - name: blockchain.identities.read
+      responses:
+        200:
+          description: Request was successful.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentitiesDto'
+        401:
+          description: Request is unauthorized (invalid credentials).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Unauthorized'
+        403:
+          description: Request is forbidden (credentials lack permission).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Forbidden'
+        '4XX':
+          description: Other error responses.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseErrorResponse'
+        '5XX':
+          description: Internal server error responses.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseErrorResponse'
   #
   #
   #
