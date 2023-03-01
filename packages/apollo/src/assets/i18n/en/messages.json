@@ -683,6 +683,7 @@
 	"remove_identity": "Remove identity",
 	"remove_identity_desc": "This action cannot be undone. This will permanently remove {{name}} from the Fabric Operations Console.",
 	"remove_identity_confirm": "Please type the name of the identity to confirm:",
+	"remove_identity_storage_disabled_tooltip": "The current identity storage provider does not support removing identities.",
 	"confirm_identity_name": "Identity name",
 	"confirm_peer_name": "Peer Name",
 	"confirm_msp_name": "MSP Name",

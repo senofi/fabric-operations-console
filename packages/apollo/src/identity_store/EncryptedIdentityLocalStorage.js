@@ -20,6 +20,10 @@ class EncryptedIdentityLocalStorage {
 		delete data[name];
 		return this.save(key, data);
 	}
+
+	canRemoveIdentity() {
+		return true;
+	}
 }
 
 export default EncryptedIdentityLocalStorage;
