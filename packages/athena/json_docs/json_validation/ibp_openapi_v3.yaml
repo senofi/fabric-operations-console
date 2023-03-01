@@ -4981,7 +4981,7 @@ paths:
         events:
           - name: blockchain.identity.save
       responses:
-        204:
+        200:
           description: Request was successful. No content.
           content:
             application/json:
