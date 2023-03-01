@@ -258,6 +258,8 @@ class IdentityModal extends React.Component {
 					<button id="remove"
 						className="ibp-identity-action cds--btn cds--btn--sm cds--btn--danger"
 						onClick={this.showRemoveIdentity}
+						disabled={!IdentityApi.canRemoveIdentity()}
+						title={translate('remove_identity_storage_disabled_tooltip')}
 					>
 						{translate('remove_identity')}
 					</button>
