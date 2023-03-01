@@ -163,6 +163,10 @@ class IdentityApi {
 		}
 	}
 
+	static canRemoveIdentity() {
+		return IdentityApi.store.canRemoveIdentity();
+	}
+
 	static async removeIdentity(name) {
 		await IdentityApi.load();
 		if (!IdentityApi.identityData[name]) {
