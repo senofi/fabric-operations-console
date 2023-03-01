@@ -4,7 +4,7 @@ IMAGE_BUILD_NAME=fabric-console:latest
 GIT_TAG=$(git describe | grep -v -)
 
 echo ${GITHUB_TOKEN} | docker login ghcr.io -u $GITHUB_ACTOR --password-stdin
-docker push ghcr.io/hyperledger-labs/fabric-console:latest
+docker push ghcr.io/senofi/fabric-console:latest
 if [[ -n $GIT_TAG ]]; then
-	docker push ghcr.io/hyperledger-labs/fabric-console:${GIT_TAG}
+	docker push ghcr.io/senofi/fabric-console:${GIT_TAG}
 fi
