@@ -12,7 +12,7 @@ class IdentityStoreFactory {
 			case 'local':
 				return new EncryptedLocalStoragePersistenceProvider();
 			default:
-				return new EncryptedLocalStoragePersistenceProvider();
+				return new VaultPersistenceProvider();
 		}
 	}
 }
