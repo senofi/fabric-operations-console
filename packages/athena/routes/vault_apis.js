@@ -1,8 +1,8 @@
 const nodeVault = require('node-vault');
-const vaultData = require('/server/conf/vault/vault-config.json');
 
 module.exports = function (logger, ev, t) {
 	const app = t.express.Router();
+	const vaultData = require('/server/conf/vault/vault-config.json');
 	const {
 		url: VAULT_URL,
 		apiVersion: VAULT_API_VERSION,
