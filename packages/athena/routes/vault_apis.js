@@ -1,15 +1,16 @@
 const nodeVault = require('node-vault');
+const vaultData = require('/server/conf/vault/vault-config.json');
 
 module.exports = function (logger, ev, t) {
 	const app = t.express.Router();
 	const {
-		VAULT_URL,
-		VAULT_API_VERSION,
-		VAULT_USERNAME,
-		VAULT_PASSWORD,
-		VAULT_ORG_NAME,
-		VAULT_PATH
-	} = process.env;
+		url: VAULT_URL,
+		apiVersion: VAULT_API_VERSION,
+		username: VAULT_USERNAME,
+		password: VAULT_PASSWORD,
+		orgName: VAULT_ORG_NAME,
+		vaultPath: VAULT_PATH
+	} = vaultData;
 
 	const vaultIdentitiesPath = `${VAULT_ORG_NAME}/data/${VAULT_PATH}`;
 	const vaultFolderContentPath = `${VAULT_ORG_NAME}/metadata/${VAULT_PATH}`;
