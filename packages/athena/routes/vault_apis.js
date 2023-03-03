@@ -64,12 +64,11 @@ module.exports = function (logger, ev, t) {
 	// Definition of requests handling functions
 	const getIdentitySecretByNameHandler = async (req, res) => {
 		const name = req.params.name;
-		const identity = {};
+		let secret;
 		try {
-			const secret = await vault
-				.read(`${vaultIdentitiesPath}/test_org_lyubo2/` + name)
+			secret = await vault
+				.read(`${vaultIdentitiesPath}/` + name)
 				.then((response) => response.data.data);
-			identity[name] = JSON.parse(secret.data);
 		} catch (error) {
 			const msg = `Error while fetching identity with key ${name} from Vault!`;
 			logger.error(`${msg} Error: ${error}`);
@@ -80,6 +79,25 @@ module.exports = function (logger, ev, t) {
 			return;
 		}
 
+		const { data, id, peers, orderer, cas, tls_cas } = secret;
+		const credentialsData = JSON.parse(data);
+
+		const { credentials, msp_id } = credentialsData;
+		const { certificate, private_key } = credentials;
+
+		const certBuffer = Buffer.from(certificate);
+		const privateKeyBuffer = Buffer.from(private_key);
+
+		const identity = {};
+		identity[id] = {
+			cert: certBuffer.toString('base64'),
+			private_key: privateKeyBuffer.toString('base64'),
+			msp_id,
+			peers: JSON.parse(peers),
+			orderer: JSON.parse(orderer),
+			cas: JSON.parse(cas),
+			tls_cas: JSON.parse(tls_cas)
+		};
 		res.json(identity);
 	};
 
@@ -88,7 +106,7 @@ module.exports = function (logger, ev, t) {
 
 		try {
 			secretsNames = await vault
-				.read(`${vaultFolderContentPath}/test_org_lyubo2?list=true`)
+				.read(`${vaultFolderContentPath}?list=true`)
 				.then((response) => response.data.keys);
 		} catch (error) {
 			const msg = 'Error while fetching identities\' secrets names from Vault!';
@@ -100,16 +118,32 @@ module.exports = function (logger, ev, t) {
 			return;
 		}
 
+		secretsNames = secretsNames.filter((e) => e[e.length - 1] !== '/');
+
 		const secrets = {};
 		try {
 			for (const secretName of secretsNames) {
 				const secret = await vault
-					.read(`${vaultIdentitiesPath}/test_org_lyubo2/${secretName}`)
+					.read(`${vaultIdentitiesPath}/${secretName}`)
 					.then((response) => response.data.data);
-				const { data, id } = secret;
+				const { data, id, peers, orderer, cas, tls_cas } = secret;
 				const identity = JSON.parse(data);
 
-				secrets[id] = identity;
+				const { credentials, msp_id } = identity;
+				const { certificate, private_key } = credentials;
+
+				const certBuffer = Buffer.from(certificate);
+				const privateKeyBuffer = Buffer.from(private_key);
+
+				secrets[id] = {
+					cert: certBuffer.toString('base64'),
+					private_key: privateKeyBuffer.toString('base64'),
+					msp_id,
+					peers: JSON.parse(peers),
+					orderer: JSON.parse(orderer),
+					cas: JSON.parse(cas),
+					tls_cas: JSON.parse(tls_cas)
+				};
 			}
 		} catch (error) {
 			const msg = 'Error while fetching/parsing identities from Vault!';
@@ -136,17 +170,62 @@ module.exports = function (logger, ev, t) {
 
 		for (let key in identities) {
 			const identityValue = identities[key];
+			const {
+				cert,
+				private_key,
+				peers = [],
+				orderer = [],
+				cas = [],
+				tls_cas = []
+			} = identityValue;
+
+			const componentsIds = [...peers, ...orderer, ...cas, ...tls_cas];
+
+			const mspIdsMapPromise = new Promise((resolve, reject) => {
+				t.component_lib.get_msp_ids_by_ids(
+					req,
+					componentsIds,
+					(err, mspIdsMap) => {
+						if (err) {
+							reject(err);
+						} else {
+							resolve(mspIdsMap);
+						}
+					}
+				);
+			});
+
+			const mspIdsMap = await mspIdsMapPromise.then((res) => res);
+			let msp_id =
+        Object.entries(mspIdsMap).length === 0
+        	? ''
+        	: Object.entries(mspIdsMap)[0];
+			for (const key in mspIdsMap) {
+				msp_id = mspIdsMap[key];
+				break;
+			}
+
+			const bufferCert = Buffer.from(cert, 'base64');
+			const bufferPrivateKey = Buffer.from(private_key, 'base64');
+			const data = {
+				credentials: {
+					certificate: bufferCert.toString('utf-8'),
+					private_key: bufferPrivateKey.toString('utf-8')
+				},
+				msp_id,
+				type: 'X.509'
+			};
 			const secretIdentity = {
-				data: JSON.stringify(identityValue),
-				id: key
+				data: JSON.stringify(data),
+				id: key,
+				peers: JSON.stringify(peers),
+				orderer: JSON.stringify(orderer),
+				cas: JSON.stringify(cas),
+				tls_cas: JSON.stringify(tls_cas)
 			};
 
 			await vault
-				.write(
-					`${vaultIdentitiesPath}/test_org_lyubo2/${key}`,
-					{ data: secretIdentity },
-					{}
-				)
+				.write(`${vaultIdentitiesPath}/${key}`, { data: secretIdentity }, {})
 				.catch((e) => {
 					errors.push(key);
 				});
