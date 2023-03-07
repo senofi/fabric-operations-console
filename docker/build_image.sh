@@ -12,6 +12,7 @@ docker build \
 	--build-arg BUILD_ID=${COMMIT} \
 	--build-arg BUILD_DATE=${BUILD_DATE} \
 	--build-arg CONSOLE_TAG=${GIT_TAG} \
+	--build-arg IDENTITY_STORE_TYPE=${IDENTITY_STORE_TYPE} \
 	--pull -f ${SRC_DIR}/console/Dockerfile ${SRC_DIR}/../packages/.
 
 docker tag ${IMAGE_BUILD_NAME} ghcr.io/senofi/fabric-console:latest

@@ -1,4 +1,6 @@
 FROM registry.access.redhat.com/ubi8/nodejs-16 as client
+ARG IDENTITY_STORE_TYPE
+ENV REACT_APP_IDENTITY_STORE_TYPE=$IDENTITY_STORE_TYPE
 ENV STITCH_DIR=/home/stitch
 ENV APOLLO_DIR=/home/apollo
 
