@@ -36,7 +36,8 @@ module.exports = function (logger, ev, t) {
       vault = nodeVault(options)
       await vault.userpassLogin({
         username: VAULT_USERNAME,
-        password: VAULT_PASSWORD
+        password: VAULT_PASSWORD,
+        mount_point: VAULT_ORG_NAME
       })
       isVaultInitialised = true
     } catch (error) {
@@ -173,30 +174,67 @@ module.exports = function (logger, ev, t) {
         tls_cas = []
       } = identityValue
 
-      const componentsIds = [...peers, ...orderer, ...cas, ...tls_cas]
+      let msp_id = ''
 
-      const mspIdsMapPromise = new Promise((resolve, reject) => {
-        t.component_lib.get_msp_ids_by_ids(
-          req,
-          componentsIds,
-          (err, mspIdsMap) => {
+      if (orderer && orderer.length) {
+        const ordererId = orderer[0]
+        const ordererIdParts = ordererId.split('.')
+        if (ordererIdParts.length === 1) {
+          msp_id = ordererIdParts[0]
+        } else if (ordererIdParts.length === 2) {
+          msp_id = ordererIdParts[1]
+        }
+      }
+
+      if (!msp_id) {
+        const componentsIds = [...peers]
+
+        const mspIdsMapPromise = new Promise((resolve, reject) => {
+          t.component_lib.get_msp_ids_by_ids(
+            req,
+            componentsIds,
+            (err, mspIdsMap) => {
+              if (err) {
+                reject(err)
+              } else {
+                resolve(mspIdsMap)
+              }
+            }
+          )
+        })
+
+        const mspIdsMap = await mspIdsMapPromise.then((res) => res)
+        msp_id =
+          Object.values(mspIdsMap).length === 0
+            ? ''
+            : Object.values(mspIdsMap)[0]
+      }
+
+      const ca_root_certs = []
+      const tls_ca_root_certs = []
+      if (msp_id) {
+        const mspMapPromise = new Promise((resolve, reject) => {
+          t.component_lib.get_msp_by_msp_id(req, [msp_id], (err, msps) => {
             if (err) {
               reject(err)
             } else {
-              resolve(mspIdsMap)
+              resolve(msps)
             }
-          }
-        )
-      })
+          })
+        })
 
-      const mspIdsMap = await mspIdsMapPromise.then((res) => res)
-      let msp_id =
-        Object.entries(mspIdsMap).length === 0
-          ? ''
-          : Object.entries(mspIdsMap)[0]
-      for (const key in mspIdsMap) {
-        msp_id = mspIdsMap[key]
-        break
+        const mspMap = await mspMapPromise.then((res) => res)
+        const msp = mspMap[msp_id]
+
+        if (msp) {
+          if (msp.root_certs) {
+            ca_root_certs.push(...msp.root_certs)
+          }
+
+          if (msp.tls_root_certs) {
+            tls_ca_root_certs.push(...msp.tls_root_certs)
+          }
+        }
       }
 
       const bufferCert = Buffer.from(cert, 'base64')
@@ -215,7 +253,9 @@ module.exports = function (logger, ev, t) {
         peers: JSON.stringify(peers),
         orderer: JSON.stringify(orderer),
         cas: JSON.stringify(cas),
-        tls_cas: JSON.stringify(tls_cas)
+        tls_cas: JSON.stringify(tls_cas),
+        ca_root_certs: JSON.stringify(ca_root_certs),
+        tlsca_root_certs: JSON.stringify(tls_ca_root_certs)
       }
 
       await vault
