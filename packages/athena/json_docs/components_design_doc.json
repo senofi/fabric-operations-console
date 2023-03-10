@@ -28,6 +28,9 @@
 		},
 		"by_msp_id_not_empty": {
       "map": "function (doc) { if (doc.msp_id) emit(doc._id, doc.msp_id); } "
+    },
+		"msp_by_msp_id": {
+      "map": "function (doc) { if (doc.type && doc.type === 'msp') emit(doc.msp_id, doc); } "
     }
 	}
 }
