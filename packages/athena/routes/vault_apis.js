@@ -5,7 +5,7 @@ module.exports = function (logger, ev, t) {
 
   let vaultData = {}
   try {
-    vaultData = require('/server/conf/vault/vault-config.json')
+    vaultData = require('/Users/lyubo/Projects/openidl/vault-config2.json')
   } catch (error) {
     logger.error('Error while loading Vault configuration file! Error: ', error)
   }
@@ -272,24 +272,44 @@ module.exports = function (logger, ev, t) {
 
   app.get(
     '/api/v[23]/vault/identity/:name',
-    t.middleware.verify_view_action_ak,
+    t.middleware.verify_view_action_session,
     checkIfVaultInitialisedMiddleware,
     getIdentitySecretByNameHandler
   )
 
   app.get(
     '/api/v[23]/vault/identity',
-    t.middleware.verify_view_action_ak,
+    t.middleware.verify_view_action_session,
     checkIfVaultInitialisedMiddleware,
     getAllIdentitiesFromVaultHandler
   )
 
   app.put(
     '/api/v[23]/vault/identity',
-    t.middleware.verify_view_action_ak,
+    t.middleware.verify_import_action_session,
     checkIfVaultInitialisedMiddleware,
     upsertIdentitiesToVaultHandler
   )
 
+  app.get(
+    '/ak/api/v[23]/vault/identity/:name',
+    t.middleware.verify_view_action_ak,
+    checkIfVaultInitialisedMiddleware,
+    getIdentitySecretByNameHandler
+  )
+
+  app.get(
+    '/ak/api/v[23]/vault/identity',
+    t.middleware.verify_view_action_ak,
+    checkIfVaultInitialisedMiddleware,
+    getAllIdentitiesFromVaultHandler
+  )
+
+  app.put(
+    '/ak/api/v[23]/vault/identity',
+    t.middleware.verify_import_action_ak,
+    checkIfVaultInitialisedMiddleware,
+    upsertIdentitiesToVaultHandler
+  )
   return app
 }
