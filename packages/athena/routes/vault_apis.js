@@ -123,13 +123,17 @@ module.exports = function (logger, ev, t) {
         .read(`${vaultFolderContentPath}?list=true`)
         .then((response) => response.data.keys)
     } catch (error) {
-      const msg = "Error while fetching identities' secrets names from Vault!"
-      logger.error(`${msg} Error: ${error}`)
-      res.status(t.ot_misc.get_code(error)).json({
-        msg,
-        reason: error
-      })
-      return
+		if (error.response.statusCode === 404) {
+			logger.warn(`No identities' secrets names were found! Error ${error}`)
+		} else {
+			const msg = "Error while fetching identities' secrets names from Vault!"
+			logger.error(`${msg} Error: ${error}`)
+			res.status(t.ot_misc.get_code(error)).json({
+				msg,
+				reason: error
+			})
+			return;
+		}
     }
 
     secretsNames = secretsNames.filter((e) => e[e.length - 1] !== '/')
