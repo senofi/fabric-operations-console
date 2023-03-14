@@ -5,7 +5,7 @@ module.exports = function (logger, ev, t) {
 
   let vaultData = {}
   try {
-    vaultData = require('/Users/lyubo/Projects/openidl/vault-config2.json')
+	vaultData = require('/server/conf/vault/vault-config.json')
   } catch (error) {
     logger.error('Error while loading Vault configuration file! Error: ', error)
   }
