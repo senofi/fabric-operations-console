@@ -5,7 +5,7 @@ module.exports = function (logger, ev, t) {
 
   let vaultData = {}
   try {
-	vaultData = require('/server/conf/vault/vault-config.json')
+	  vaultData = require('/server/conf/vault/vault-config.json')
   } catch (error) {
     logger.error('Error while loading Vault configuration file! Error: ', error)
   }
@@ -78,8 +78,8 @@ module.exports = function (logger, ev, t) {
     } = secret
     const credentialsData = JSON.parse(data)
 
-    const { credentials, msp_id } = credentialsData
-    const { certificate, private_key } = credentials
+    const { credentials, mspId: msp_id } = credentialsData
+    const { certificate, privateKey: private_key } = credentials
 
     const certBuffer = Buffer.from(certificate)
     const privateKeyBuffer = Buffer.from(private_key)
@@ -246,9 +246,9 @@ module.exports = function (logger, ev, t) {
       const data = {
         credentials: {
           certificate: bufferCert.toString('utf-8'),
-          private_key: bufferPrivateKey.toString('utf-8')
+          privateKey: bufferPrivateKey.toString('utf-8')
         },
-        msp_id,
+        mspId: msp_id,
         type: 'X.509'
       }
       const secretIdentity = {
