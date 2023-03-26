@@ -1881,7 +1881,7 @@ module.exports = function (logger, ev, t) {
 			_id: '_design/athena-v1',		// name of design doc
 			view: 'by_msp_id_not_empty',
 			SKIP_CACHE: t.ot_misc.skip_cache(req),
-			query: t.misc.formatObjAsQueryParams({keys: component_ids }),
+			query: t.misc.formatObjAsQueryParams({ keys: component_ids }),
 			expires: 1000 * 60 * 5,
 		};
 
@@ -1913,7 +1913,7 @@ module.exports = function (logger, ev, t) {
 			_id: '_design/athena-v1',		// name of design doc
 			view: 'msp_by_msp_id',
 			SKIP_CACHE: t.ot_misc.skip_cache(req),
-			query: t.misc.formatObjAsQueryParams({keys: msp_ids }),
+			query: t.misc.formatObjAsQueryParams({ keys: msp_ids }),
 			expires: 1000 * 60 * 5,
 		};
 
