@@ -1,4 +1,4 @@
-const nodeVault = require('node-vault');
+const VaultClient = require('../vault/vault_client');
 
 module.exports = function (logger, ev, t) {
 	const app = t.express.Router();
@@ -10,47 +10,13 @@ module.exports = function (logger, ev, t) {
 		logger.error('Error while loading Vault configuration file! Error: ', error);
 	}
 
-	const {
-		url: VAULT_URL,
-		apiVersion: VAULT_API_VERSION,
-		username: VAULT_USERNAME,
-		password: VAULT_PASSWORD,
-		orgName: VAULT_ORG_NAME,
-		vaultPath: VAULT_PATH
-	} = vaultData;
-
-	const vaultIdentitiesPath = `${VAULT_ORG_NAME}/data/${VAULT_PATH}`;
-	const vaultFolderContentPath = `${VAULT_ORG_NAME}/metadata/${VAULT_PATH}`;
-
 	// Vault initialisation
-	let vault;
-	let isVaultInitialised = false;
-
-	const initVaultClient = async () => {
-		const options = {
-			apiVersion: VAULT_API_VERSION,
-			endpoint: VAULT_URL
-		};
-
-		try {
-			vault = nodeVault(options);
-			await vault.userpassLogin({
-				username: VAULT_USERNAME,
-				password: VAULT_PASSWORD,
-				mount_point: VAULT_ORG_NAME
-			});
-			isVaultInitialised = true;
-		} catch (error) {
-			const msg = 'Error while establishing connection to Vault!';
-			logger.error(`${msg} Error: ${error}`);
-		}
-	};
-
-	initVaultClient();
+	const vaultClient = new VaultClient(vaultData, logger);
+	vaultClient.init();
 
 	// Check if Vault client initialised middleware
 	const checkIfVaultInitialisedMiddleware = (req, res, next) => {
-		if (isVaultInitialised) {
+		if (vaultClient.getIsInitialized()) {
 			return next();
 		}
 		const msg = 'Vault client not initialised!';
@@ -64,9 +30,8 @@ module.exports = function (logger, ev, t) {
 
 	// Extracted logic to get identity secret from Vault by name.
 	const getIdentitySecretByName = async (name) => {
-		const secret = await vault
-			.read(`${vaultIdentitiesPath}/` + name)
-			.then((response) => response.data.data);
+		const secret = await vaultClient
+			.readSecret(name);
 
 		const {
 			data,
@@ -119,11 +84,10 @@ module.exports = function (logger, ev, t) {
 		let secretsNames = [];
 
 		try {
-			secretsNames = await vault
-				.read(`${vaultFolderContentPath}?list=true`)
-				.then((response) => response.data.keys);
+			secretsNames = await vaultClient
+				.listSecrets();
 		} catch (error) {
-			if (error.response.statusCode === 404) {
+			if (error && error.response && error.response.status === 404) {
 				logger.warn(`No identities' secrets names were found! Error ${error}`);
 			} else {
 				const msg = 'Error while fetching identities\' secrets names from Vault!';
@@ -261,8 +225,8 @@ module.exports = function (logger, ev, t) {
 				tlsca_root_certs: JSON.stringify(tls_ca_root_certs)
 			};
 
-			await vault
-				.write(`${vaultIdentitiesPath}/${key}`, { data: secretIdentity }, {})
+			await vaultClient
+				.upsertSecret(key, secretIdentity)
 				.catch((e) => {
 					errors.push(key);
 				});
@@ -272,7 +236,6 @@ module.exports = function (logger, ev, t) {
 	};
 
 	// Routes definition
-
 	app.get(
 		'/api/v[23]/vault/identity/:name',
 		t.middleware.verify_view_action_session,
