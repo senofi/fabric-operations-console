@@ -62,7 +62,7 @@ class VaultClient {
 			.catch(async (error) => {
 				if (!isRetried && error && error.response && (error.response.status === 401 || error.response.status === 403)) {
 					await this.init();
-					return await this.listSecrets(true);
+					return await this.readSecret(true);
 				}
 				this.logger.error('Unable to read secret!', error);
 				throw error;
@@ -81,7 +81,7 @@ class VaultClient {
 			.catch(async (error) => {
 				if (!isRetried && error && error.response && (error.response.status === 401 || error.response.status === 403)) {
 					await this.init();
-					return await this.listSecrets(true);
+					return await this.upsertSecret(true);
 				}
 				this.logger.error('Unable to create secret!', error);
 				throw error;
