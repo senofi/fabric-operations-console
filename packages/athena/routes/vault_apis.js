@@ -133,13 +133,14 @@ module.exports = function (logger, ev, t) {
 
 		for (let key in identities) {
 			const identityValue = identities[key];
-			const {
+			let {
 				cert,
 				private_key,
 				peers = [],
 				orderer = [],
 				cas = [],
-				tls_cas = []
+				tls_cas = [],
+				msp_id = ''
 			} = identityValue;
 
 			let msp_id = '';
