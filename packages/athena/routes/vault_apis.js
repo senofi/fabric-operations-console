@@ -143,8 +143,6 @@ module.exports = function (logger, ev, t) {
 				msp_id = ''
 			} = identityValue;
 
-			let msp_id = '';
-
 			if (orderer && orderer.length) {
 				const ordererId = orderer[0];
 				const ordererIdParts = ordererId.split('.');
