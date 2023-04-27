@@ -20,6 +20,7 @@ class VaultClient {
 		this.apiVersion = apiVersion;
 		this.vaultIdentitiesPath = `${orgName}/data/${vaultPath}`;
 		this.vaultFolderContentPath = `${orgName}/metadata/${vaultPath}`;
+		this.loginPath = `${url}/${apiVersion}/auth/${orgName}/login/${username}`;
 	}
 
 	getIsInitialized() {
@@ -28,7 +29,7 @@ class VaultClient {
 
 	async init() {
 		const passwordObject = { password: this.password };
-		await axios.post(`${this.url}/${this.apiVersion}/auth/userpass/login/${this.username}`,
+		await axios.post(this.loginPath,
 			passwordObject
 		)
 			.then(res => {
