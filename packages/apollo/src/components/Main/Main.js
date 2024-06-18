@@ -13,14 +13,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
 */
-import { Link, Modal } from 'carbon-components-react';
+import { Link, Modal } from "@carbon/react";
 import _ from 'lodash';
 import PropTypes from 'prop-types';
 import React, { Component } from 'react';
-import IdleTimer from 'react-idle-timer';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
-import { BrowserRouter as Router, Redirect, Route, Switch } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { showError, showSuccess, updateState } from '../../redux/commonActions';
 import LoginApi from '../../rest/LoginApi';
 import SettingsApi from '../../rest/SettingsApi';
@@ -34,7 +33,7 @@ import Channels from '../Channels/Channels';
 import Identities from '../Identities/Identities';
 import LeftNav from '../LeftNav/LeftNav';
 import Logger from '../Log/Logger';
-import Members from '../Members/Members';
+import Access from '../Access/Access';
 import Msps from '../Msps/Msps';
 import Nodes from '../Nodes/Nodes';
 import NotFound from '../NotFound/NotFound';
@@ -47,6 +46,8 @@ import Settings from '../Settings/Settings';
 import Support from '../Support/Support';
 import TitleBar from '../TitleBar/TitleBar';
 import MigrationPage from '../MigrationPage/MigrationPage';
+import AuditLogs from '../AuditLogs/AuditLogs';
+import { IdleTimer } from "../IBPIdleTimer";
 
 const SCOPE = 'main';
 const Log = new Logger(SCOPE);
@@ -79,12 +80,14 @@ class Main extends Component {
 					max_idle_time: max_idle_time,
 					max_idle_warning_time: max_idle_warning_time,
 					in_read_only_mode: in_read_only_mode,
+					audit_logging_enabled: _.get(settings, 'FEATURE_FLAGS.audit_logging_enabled') ? true : false,
 				});
 			})
 			.catch(error => {
 				console.error(error);
 				this.props.updateState(SCOPE, {
 					in_read_only_mode: false,
+					audit_logging_enabled: false
 				});
 			});
 	}
@@ -137,9 +140,9 @@ class Main extends Component {
 	};
 
 	render() {
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		return (
-			<Router>
+			<BrowserRouter>
 				<div className="ibm ibp-main">
 					<TitleBar userInfo={this.props.userInfo}
 						host_url={this.props.host_url}
@@ -148,103 +151,112 @@ class Main extends Component {
 					<div role="main"
 						className="ibp-main-content"
 					>
-						<LeftNav />
+						<LeftNav auditLogsEnabled={this.props.audit_logging_enabled} />
 						<div className="ibp-page-content">
 							<ScrollToTop>
-								<Switch>
-									<Route exact
+								<Routes>
+									<Route
+										index
 										path="/"
-										render={() => <Redirect to="/nodes" />}
+										element={<Navigate to="/nodes" replace={true} />}
 									/>
 									<Route path="/nodes"
-										component={Nodes}
+										element={<Nodes />}
 										exact
 									/>
-									<Route exact
-										path="/peer/:peerId"
-										component={PeerDetails}
+									<Route path="/peer/:peerId"
+										element={<PeerDetails />}
 									/>
 									<Route exact
-										path="/orderer/:ordererId"
-										component={OrdererDetails}
+										path="/orderer/:clusterIdPath"
+										element={<OrdererDetails />}
 									/>
 									<Route exact
-										path="/orderer/:ordererId/:nodeId"
-										component={OrdererDetails}
+										path="/orderer/:clusterIdPath/:nodeId"
+										element={<OrdererDetails />}
 									/>
 									{/* /debug is a debugging route that exposes a link in the left pane to download the config block of the channel */}
 									<Route exact
-										path="/debug/orderer/:ordererId/:channelId?"
-										component={OrdererDetails}
+										path="/debug/orderer/:clusterIdPath/:channelId?"
+										element={<OrdererDetails />}
 									/>
 									<Route path="/ca/:caId"
-										component={CADetails}
+										element={<CADetails />}
 									/>
 									<Route path="/channels"
-										component={Channels}
+										element={<Channels />}
 										exact
 									/>
+									{/* 2023/05/01 the /users route is now legacy, renamed to /access */}
 									<Route path="/users"
-										component={Members}
+										element={<Access />}
+										exact
+									/>
+									<Route path="/access"
+										element={<Access />}
 										exact
 									/>
 									<Route path="/peer/:peerId/channel/:channelId"
-										component={ChannelDetails}
+										element={<ChannelDetails />}
 										exact
 									/>
 									{/* /debug is a debugging route that exposes a link in the left pane to download the config block of the channel */}
 									<Route path="/debug/peer/:peerId/channel/:channelId"
-										component={ChannelDetails}
+										element={<ChannelDetails />}
 										exact
 									/>
 									<Route path="/peer/:peerId/channel/:channelId/block/:blockNumber"
-										component={ChannelBlock}
+										element={<ChannelBlock />}
 										exact
 									/>
 									<Route path="/channel/:channelId"
-										component={ChannelDetails}
+										element={<ChannelDetails />}
 										exact
 									/>
 									<Route path="/channel/:channelId/block/:blockNumber"
-										component={ChannelBlock}
+										element={<ChannelBlock />}
 										exact
 									/>
 									<Route path="/smart-contracts"
-										component={ChaincodesPage}
+										element={<ChaincodesPage />}
 										exact
 									/>
 									<Route path="/settings"
-										component={Settings}
+										element={<Settings />}
 										exact
 									/>
 									<Route path="/wallet"
-										component={Identities}
+										element={<Identities />}
 										exact
 									/>
 									<Route path="/organizations"
-										component={Msps}
+										element={<Msps />}
 										exact
 									/>
 									<Route exact
 										path="/organization/:mspId"
-										component={OrganizationDetails}
+										element={<OrganizationDetails />}
 									/>
 									<Route path="/support"
-										component={Support}
+										element={<Support />}
 										exact
 									/>
 									<Route path="/export-identities"
-										component={Settings}
+										element={<Settings />}
 										exact
 									/>
 									<Route path="/migration"
-										component={MigrationPage}
+										element={<MigrationPage />}
 										exact
 									/>
-									<Route path="*"
-										component={NotFound}
+									<Route exact
+										path="/audit"
+										element={<AuditLogs />}
 									/>
-								</Switch>
+									<Route path="*"
+										element={<NotFound />}
+									/>
+								</Routes>
 							</ScrollToTop>
 						</div>
 					</div>
@@ -310,7 +322,7 @@ class Main extends Component {
 						</Modal>
 					)}
 				</div>
-			</Router>
+			</BrowserRouter>
 		);
 	}
 }
@@ -324,13 +336,14 @@ const dataProps = {
 	max_idle_time: PropTypes.number,
 	max_idle_warning_time: PropTypes.number,
 	in_read_only_mode: PropTypes.bool,
+	audit_logging_enabled: PropTypes.bool,
 };
 
 Main.propTypes = {
 	...dataProps,
 	userInfo: PropTypes.object,
 	host_url: PropTypes.string,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default connect(
@@ -345,4 +358,4 @@ export default connect(
 		showError,
 		updateState,
 	}
-)(withLocalize(Main));
+)(withTranslation()(Main));

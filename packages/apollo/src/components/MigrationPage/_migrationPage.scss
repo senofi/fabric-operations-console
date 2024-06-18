@@ -89,23 +89,23 @@
 		margin: 1.6rem 0 0 1rem;
 	}
 
-	.bx--accordion__heading {
+	.cds--accordion__heading {
 		background: #0353e9;
 	}
 
-	.bx--accordion__heading:hover,
-	.bx--accordion__heading:hover::before {
+	.cds--accordion__heading:hover,
+	.cds--accordion__heading:hover::before {
 		background: #0353e9;
 		border: 1px #fff solid;
 	}
 
-	.bx--accordion__heading,
-	.bx--accordion__heading::before {
+	.cds--accordion__heading,
+	.cds--accordion__heading::before {
 		border: 1px #0353e9 solid;
 	}
 
-	.bx--accordion__content {
-		padding-right: 9%;
+	.cds--accordion__content {
+		padding-right: 1rem;
 	}
 
 	.toggleHeader {
@@ -117,7 +117,7 @@
 		font-size: 0.9rem;
 	}
 
-	.bx--structured-list-td {
+	.cds--structured-list-td {
 		font-size: .7rem;
 		line-height: 0.8rem;
 	}
@@ -153,7 +153,7 @@
 	.stepBubble {
 		background-color: #0353e9;
 		color: #fff;
-		border-radius: 5%;
+		border-radius: 25%;
 		border: 3px #0353e9 solid;
 		width: 3rem;
 		display: inline-block;
@@ -171,8 +171,8 @@
 	}
 
 	.stepBubble.step-active {
-		background-color: #fff;
-		color: #0353e9;
+		background-color: #121619;
+		color: #fff;
 	}
 
 	.stepBubble.step-error {
@@ -195,6 +195,26 @@
 
 	.stepLine.step-error {
 		border-color: #f44a4a;
+	}
+
+	.stepLineWrap {
+		position: relative;
+	}
+
+	.stepLineMotion {
+		position: absolute;
+		border-top: 3px #3d7cf0 solid;
+		width: 0.5rem;
+		left: 0rem;
+		top: 0.4rem;
+		padding: 0;
+		margin: 0;
+		min-width: 1px;
+
+		animation-duration: 1s;
+		animation-iteration-count: infinite;
+		animation-name: stepLineMotion;
+		transition-timing-function: linear;
 	}
 
 	.stepIndicator {
@@ -230,6 +250,16 @@
 		font-size: 1.2rem;
 	}
 
+	.errorTxt {
+		width: 55%;
+		text-align: left;
+		margin: auto;
+		margin-top: 1rem;
+		color: #fff;
+		background: #f44a4a;
+		padding: 0.5rem 1rem;
+	}
+
 	.bounce {
 		animation-name: bounce;
 		animation-timing-function: cubic-bezier(0.27, 0.84, 0.42, 1.00);
@@ -257,6 +287,28 @@
 			transform: scale(1, 1) translateY(0);
 		}
 	}
+
+	@keyframes stepLineMotion {
+		0% {
+			transform: translate(0rem, 0rem);
+		}
+
+		100% {
+			transform: translate(8rem, 0rem);
+		}
+	}
+
+	.newConsoleWrap {
+		background: #3b3d3e;
+		padding: 0.6rem 1.5rem;
+		display: inline-block;
+		margin-bottom: 0.5rem;
+	}
+
+	.leftParagraphMore {
+		margin-left: 3rem;
+		line-height: 1.2rem;
+	}
 }
 
 .errorTxt,
@@ -277,7 +329,8 @@
 
 	.mig_version_label,
 	.mig_version_value,
-	.mig_min_version_value {
+	.mig_min_version_value,
+	.mig_valid_txt {
 		font-size: 0.8rem;
 		display: inline-block;
 	}
@@ -290,10 +343,22 @@
 	.mig_min_version_value {
 		margin-left: 0.5rem;
 	}
+
+	.mig_valid_txt {
+		background: #81a4ec;
+		margin-left: .5rem;
+		padding: 0.2rem 0.5rem;
+		border-radius: 1rem;
+	}
+
+	.versionRowWrap {
+		padding-bottom: 0.3rem;
+	}
 }
 
 .leftParagraph {
-	margin-left: 2rem;
+	margin-left: 1rem;
+	line-height: 1.2rem;
 }
 
 .tinyTextWhite {

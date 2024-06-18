@@ -333,7 +333,6 @@ osnadmin
 esbuild
 outfile
 svgr
-medallia
 coremetrics
 bmix
 backoff
@@ -349,3 +348,12 @@ multiregion
 checkmark
 unparseable
 preqs
+pentesters
+idaas
+sess
+ldapauth
+openidconnect
+soidc
+channelless
+hlfoc
+owasp

@@ -16,11 +16,10 @@
 
 import _ from 'lodash';
 import { showError, clearNotifications, setNodeStatus } from '../redux/commonActions';
-import ComponentApi from '../rest/ComponentApi';
 import { NodeRestApi } from '../rest/NodeRestApi';
 import { RestApi } from '../rest/RestApi';
 
-const RETRY_LIMIT = 15; // takes 4 minutes to give up
+const RETRY_LIMIT = 2;
 const RETRY_FREQUENCY = 5000;
 const SCOPE = 'node_status';
 
@@ -59,14 +58,12 @@ const NodeStatus = {
 			}
 		}
 
-		console.log('ibp99 - getStatusFromPhase', status);
 		return status;
 	},
 
 	checkResources(node) {
-		console.log('ibp99 - checkResources', node.id);
 		return new Promise((resolve, reject) => {
-			ComponentApi.getComponent(node)
+			NodeRestApi.api_getCurrentNodeDeployer(node)
 				.then(resp => {
 					if (resp && resp.resource_warnings !== 'none' && resp.resource_warnings !== 'unknown') {
 						if (this.dispatch) {
@@ -86,10 +83,8 @@ const NodeStatus = {
 						});
 					} else {
 						if ((node.type === 'fabric-orderer' || node.type === 'orderer') && node.consenter_proposal_fin === false) {
-							console.log('ibp99 - getting comp status from deployer', node.id);
 							NodeRestApi.getNodeDetailsFromDeployer(node.id)
 								.then(() => {
-									console.log('ibp99 - deployer says the component is running', node.id);
 									resolve({
 										id: node.id,
 										status: 'running',
@@ -174,11 +169,6 @@ const NodeStatus = {
 		return res;
 	},
 
-	calcRetryDelay(lastRetryDelay, attempt) {
-		// wait 15% more each time
-		return Math.floor(lastRetryDelay * 1.15);
-	},
-
 	// make wrapper around old getStatus interface
 	getStatus(data, scope, prop, callback, retryLimit, retryFreq) {
 		// call the new interface
@@ -189,18 +179,18 @@ const NodeStatus = {
 		});
 	},
 
-	getStatusInternal(data, scope, prop, retryLimit, lastRetryDelay, attempt, callback) {
+	getStatusInternal(data, scope, prop, retryLimit, retryFreq, attempt, callback) {
 		if (!data) {
 			return;
 		}
 		if (!_.isArray(data)) {
-			return this.getStatus([data], scope, prop, callback, retryLimit, lastRetryDelay);
+			return this.getStatus([data], scope, prop, callback, retryLimit, retryFreq);
 		}
 		if (!retryLimit) {
 			retryLimit = RETRY_LIMIT;
 		}
-		if (!lastRetryDelay) {
-			lastRetryDelay = RETRY_FREQUENCY;
+		if (!retryFreq) {
+			retryFreq = RETRY_FREQUENCY;
 		}
 
 		const components = {};
@@ -256,7 +246,7 @@ const NodeStatus = {
 		const id = new Date().getTime().toString();
 		this.in_progress[id] = true;
 
-		RestApi.post('/api/v2/components/status', { components })
+		RestApi.post('/api/v3/components/status', { components })
 			.then(results => {
 				if (this.in_progress[id]) {
 					const resource_checks = [];
@@ -272,7 +262,6 @@ const NodeStatus = {
 								// all good, so return status
 							}
 							if (status) {
-								console.log('ibp99 - getStatusInternal 1', id, status);
 								this.updateStatus(id, status, scope, prop, callback);
 								complete[id] = true;
 							}
@@ -290,7 +279,6 @@ const NodeStatus = {
 						if (this.in_progress[id]) {
 							results_list.forEach(result => {
 								if (result && result.id) {
-									console.log('ibp99 - getStatusInternal 2', result.id, result.status);
 									this.updateStatus(result.id, result.status, scope, prop, callback);
 									switch (result.status) {
 										case 'initialized':
@@ -339,13 +327,12 @@ const NodeStatus = {
 
 									// store the timeouts where we can clear them after a logout
 									// helps avoid the a api lockout
-									const thisDelayMs = this.calcRetryDelay(lastRetryDelay, attempt);
 									window.statusApiRetries[scope] = window.setTimeout(() => {
 										if (this.in_progress[id]) {
-											this.getStatusInternal(retry, scope, prop, retryLimit, thisDelayMs, ++attempt, callback);
+											this.getStatusInternal(retry, scope, prop, retryLimit, retryFreq, ++attempt, callback);
 											delete this.in_progress[id];
 										}
-									}, thisDelayMs);
+									}, retryFreq);
 								} else {
 									retry.forEach(failed => {
 										this.updateStatus(failed.id, 'unknown', scope, prop, callback);

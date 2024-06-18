@@ -31,7 +31,7 @@ const LEGACY_PEER_TYPE = 'peer';
 
 class PeerRestApi {
 	static async getPeers(skip_cache) {
-		return NodeRestApi.getNodes('fabric-peer', skip_cache);
+		return NodeRestApi.getNodes(['fabric-peer'], skip_cache);
 	}
 
 	static async getPeersWithCerts(skip_cache) {
@@ -63,8 +63,8 @@ class PeerRestApi {
 		return peers;
 	}
 
-	static async getPeerDetails(id, includePrivateKeyAndCert) {
-		return NodeRestApi.getNodeDetails(id, includePrivateKeyAndCert);
+	static async getPeerDetails(id, includePrivateKeyAndCert, skip_cache) {
+		return NodeRestApi.getNodeDetails(id, includePrivateKeyAndCert, skip_cache);
 	}
 
 	static async startPeer(peerId) {
@@ -305,7 +305,18 @@ class PeerRestApi {
 				if (error.grpc_resp.statusMessage.indexOf('successfully installed') !== -1) {
 					Log.info(`smart contract already installed on peer "${peer.display_name}"`);
 					return {};
-				} else {
+				} else if (error.grpc_resp.statusMessage.indexOf('???') === 10) {
+					try {
+						const lc_installChaincode = v2_lifecycle ? promisify(window.stitch.lc_installChaincode) : promisify(window.stitch.installChaincode);
+						const installChaincode = await lc_installChaincode(opts);
+						return installChaincode.data;
+					}
+					catch (error) {
+						Log.error(error);
+						throw error;
+					}
+				}
+				else {
 					throw error;
 				}
 			}
@@ -428,6 +439,9 @@ class PeerRestApi {
 				msp_id: some_peer_record.msp_id,
 				msp: some_peer_record.msp,
 				migrated_from: some_peer_record.migrated_from ? some_peer_record.migrated_from : undefined,
+				imported: some_peer_record.imported ? some_peer_record.imported : undefined,
+				cluster_type: some_peer_record.cluster_type ? some_peer_record.cluster_type : undefined,
+				console_type: some_peer_record.console_type ? some_peer_record.console_type : undefined,
 			};
 			if (!_.get(exportedPeer, 'msp.component.tls_cert')) {
 				_.set(exportedPeer, 'msp.component.tls_cert', some_peer_record.tls_cert);
@@ -462,7 +476,7 @@ class PeerRestApi {
 	static async updatePeer(peer) {
 		peer.grpcwp_url = Helper.fixURL(peer.grpcwp_url);
 		await NodeRestApi.updateNode(peer);
-		return this.getPeerDetails(peer.id, false);
+		return this.getPeerDetails(peer.id, false, true);
 	}
 
 	static async createPeer(data) {
@@ -494,7 +508,7 @@ class PeerRestApi {
 							admin_certs: data.admin_msp.admins,
 						},
 					},
-				  }
+				}
 				: {
 					msp: {
 						ca: {
@@ -513,7 +527,7 @@ class PeerRestApi {
 							admin_certs: data.admin_msp.admins,
 						},
 					},
-				  },
+				},
 		};
 		if (data.clusterType === 'paid') {
 			node.resources = {

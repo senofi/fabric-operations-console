@@ -13,11 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
 */
-import { InlineNotification, NotificationActionButton } from 'carbon-components-react';
+import { InlineNotification, NotificationActionButton } from "@carbon/react";
 import _ from 'lodash';
 import PropTypes from 'prop-types';
 import React, { Component } from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import { updateState } from '../../redux/commonActions';
 import { NodeRestApi } from '../../rest/NodeRestApi';
@@ -111,6 +111,7 @@ export class PageHeader extends Component {
 			migratedConsoleUrl: resp ? resp.migrated_console_url : '',
 			showDeleteBanner: false,
 			migrationType: this.detectBannerType(resp ? resp.deadline : 0),
+			showThreat: resp ? resp.migration_enabled : false,
 		};
 		migrationState.showDeleteBanner = migrationState.isMigrationComplete;
 		migrationState.showReadOnlyBanner = migrationState.isMigrationComplete;
@@ -123,6 +124,7 @@ export class PageHeader extends Component {
 			migrationState.showMigrationBanner = false;
 			migrationState.showDeleteBanner = false;
 			migrationState.showReadOnlyBanner = false;
+			migrationState.showThreat = false;
 		}
 
 		this.props.updateState(SCOPE, migrationState);
@@ -132,7 +134,7 @@ export class PageHeader extends Component {
 	// change the color/type of the migration banner based on how much time is left
 	detectBannerType(deadline_timestamp_ms) {
 		const time_left_ms = deadline_timestamp_ms - Date.now();
-		console.log('[migration] time remaining', Helper.friendly_ms(time_left_ms, this.props.translate));
+		console.log('[migration] time remaining', Helper.friendly_ms(time_left_ms, this.props.t));
 		if (time_left_ms <= 1000 * 60 * 60 * 24 * 30) {				// <= 30 days
 			return 'error';
 		} else if (time_left_ms <= 1000 * 60 * 60 * 24 * 90) {		// <= 90 days
@@ -146,7 +148,7 @@ export class PageHeader extends Component {
 		let certs = [];
 		let parsed_certs = [];
 		try {
-			const allNodes = await NodeRestApi.getAllNodes();
+			const allNodes = await NodeRestApi.getAllNodesClientCache();
 			let needToWarnCertExpiry = false;
 			allNodes.forEach(node => {
 				const eCert = _.get(node, 'msp.component.ecert');
@@ -346,7 +348,7 @@ export class PageHeader extends Component {
 	}
 
 	render() {
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		const created_parsed_certs = this.parseAllCompCerts(this.props.createdArr);
 		let details = this.buildCertDetailsStr(created_parsed_certs);
 
@@ -410,6 +412,14 @@ export class PageHeader extends Component {
 							{translate('migration_done_button')}
 						</NotificationActionButton>}
 						title={translate('migration_done_title')}
+					/>
+				)}
+				{this.props.showAnnouncement && this.props.showThreat && (
+					<InlineNotification
+						className='threat-style'
+						kind="error"
+						hideCloseButton
+						title={translate('threat_message')}
 					/>
 				)}
 				{this.props.showAnnouncement && this.props.showReadOnlyBanner && (
@@ -493,12 +503,13 @@ const dataProps = {
 	showCertUpdateNotice: PropTypes.bool,
 	upCompList: PropTypes.string,
 	migrationType: PropTypes.string,
+	showThreat: PropTypes.bool,
 };
 
 PageHeader.propTypes = {
 	...dataProps,
 	updateState: PropTypes.func,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default connect(
@@ -510,4 +521,4 @@ export default connect(
 	{
 		updateState,
 	}
-)(withLocalize(PageHeader));
+)(withTranslation()(PageHeader));

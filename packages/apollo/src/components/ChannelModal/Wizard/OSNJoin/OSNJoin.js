@@ -15,17 +15,17 @@
 */
 
 import _ from 'lodash';
-import { InlineNotification } from 'carbon-components-react';
+import { InlineNotification } from "@carbon/react";
 import PropTypes from 'prop-types';
 import React, { Component } from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import { updateState } from '../../../../redux/commonActions';
 import Helper from '../../../../utils/helper';
 import StitchApi from '../../../../rest/StitchApi';
 import ConfigBlockApi from '../../../../rest/ConfigBlockApi';
 import SVGs from '../../../Svgs/Svgs';
-import { Loading } from 'carbon-components-react';
+import { Loading } from "@carbon/react";
 
 const SCOPE = 'channelModal';
 let timer = null;
@@ -68,7 +68,7 @@ class OSNJoin extends Component {
 	// main render
 	render() {
 		const {
-			translate,
+			t: translate,
 			channel_id,
 			block_error,
 		} = this.props;
@@ -152,6 +152,11 @@ class OSNJoin extends Component {
 					extra_consenter_data: nodes_arr,
 					tx_id: tx_id,
 				});
+
+				// then reload them to force cache update
+				await ConfigBlockApi.getAll({ cache: 'skip' });
+				await ConfigBlockApi.getAll({ cache: 'skip', visibility: 'all' });		// do both types
+
 				return apiResp;
 			} else {
 				return null;
@@ -197,7 +202,7 @@ const dataProps = {
 OSNJoin.propTypes = {
 	...dataProps,
 	updateState: PropTypes.func,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default connect(
@@ -207,4 +212,4 @@ export default connect(
 	{
 		updateState,
 	}
-)(withLocalize(OSNJoin));
+)(withTranslation()(OSNJoin));

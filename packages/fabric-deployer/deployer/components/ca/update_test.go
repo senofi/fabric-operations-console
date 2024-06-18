@@ -22,7 +22,7 @@ import (
 	"encoding/json"
 	"reflect"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
@@ -34,8 +34,8 @@ import (
 	"github.com/IBM-Blockchain/fabric-deployer/deployer/components/ca"
 	"github.com/IBM-Blockchain/fabric-deployer/deployer/components/ca/api"
 	"github.com/IBM-Blockchain/fabric-deployer/deployer/components/ca/mocks"
-	ibpca "github.com/IBM-Blockchain/fabric-operator/api/ca/v1"
 	current "github.com/IBM-Blockchain/fabric-operator/api/v1beta1"
+	ibpca "github.com/IBM-Blockchain/fabric-operator/pkg/apis/ca/v1"
 )
 
 var _ = Describe("Update API", func() {

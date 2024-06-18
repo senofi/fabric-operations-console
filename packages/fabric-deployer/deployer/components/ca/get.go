@@ -22,10 +22,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/IBM-Blockchain/fabric-deployer/deployer/components/ca/api"
 	"github.com/IBM-Blockchain/fabric-deployer/deployer/components/common"
 	"github.com/IBM-Blockchain/fabric-deployer/deployer/util"
+	"github.com/IBM-Blockchain/fabric-deployer/offering"
 	current "github.com/IBM-Blockchain/fabric-operator/api/v1beta1"
 	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -187,7 +189,10 @@ func (ca *CA) getEndpoints(originalCR *current.IBPCA, response *api.Response, st
 	if connectionProfile != nil {
 		if connectionProfile.Endpoints != nil {
 			endPoints := connectionProfile.Endpoints
-			updateEndpoints(endPoints, originalCR.Name, originalCR.Namespace, originalCR.Spec.Domain)
+			// Update endpoints for k8s clusters only
+			if ca.Kube.ClusterType(originalCR.Namespace) == strings.ToLower(string(offering.K8S)) {
+				updateEndpoints(endPoints, originalCR.Name, originalCR.Namespace, originalCR.Spec.Domain)
+			}
 			response.Endpoints = endPoints
 		} else {
 			ca.Logger.Warnf("Connection profile is missing fields endpoints")

@@ -13,10 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
 */
-import { CodeSnippet } from 'carbon-components-react';
+import { CodeSnippet } from "@carbon/react";
 import PropTypes from 'prop-types';
 import React from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import { updateState } from '../../redux/commonActions';
 import { OrdererRestApi } from '../../rest/OrdererRestApi';
@@ -25,6 +25,7 @@ import Helper from '../../utils/helper';
 import Form from '../Form/Form';
 import Logger from '../Log/Logger';
 import SidePanel from '../SidePanel/SidePanel';
+import RenderParamHTML from '../RenderHTML/RenderParamHTML';
 
 const SCOPE = 'mspDeleteModal';
 const Log = new Logger(SCOPE);
@@ -42,7 +43,7 @@ export class MspDeleteModal extends React.Component {
 		this.props.updateState(SCOPE, { submitting: true });
 		// API to remove MSP
 		const mspPayload = {
-			ordererId: this.props.ordererId,
+			cluster_id: this.props.clusterId,
 			configtxlator_url: this.props.configtxlator_url,
 			type: this.props.ordererAdmin ? 'ordererAdmin' : 'ordererMember',
 			operation: 'delete',
@@ -91,7 +92,7 @@ export class MspDeleteModal extends React.Component {
 					<h1 className="ibm-light">{translate(this.props.ordererAdmin ? 'remove_adminmsp_from_orderer' : 'remove_msp_from_consortium')}</h1>
 				</div>
 				<p className="ibp-remove-msp-desc">
-					{translate(this.props.ordererAdmin ? 'remove_adminmsp_from_orderer_desc' : 'remove_msp_from_consortium_desc', {
+					{RenderParamHTML(translate, this.props.ordererAdmin ? 'remove_adminmsp_from_orderer_desc' : 'remove_msp_from_consortium_desc', {
 						name: (
 							<CodeSnippet
 								type="inline"
@@ -127,7 +128,7 @@ export class MspDeleteModal extends React.Component {
 	}
 
 	render() {
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		return (
 			<SidePanel
 				id="removeMspModal"
@@ -170,7 +171,7 @@ MspDeleteModal.propTypes = {
 	onComplete: PropTypes.func,
 	onClose: PropTypes.func,
 	updateState: PropTypes.func,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default connect(
@@ -180,4 +181,4 @@ export default connect(
 	{
 		updateState,
 	}
-)(withLocalize(MspDeleteModal));
+)(withTranslation()(MspDeleteModal));

@@ -13,10 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
 */
-import { Button } from 'carbon-components-react';
+import { Button } from "@carbon/react";
 import PropTypes from 'prop-types';
 import React, { Component } from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import { updateState } from '../../redux/commonActions';
 import { CertificateAuthorityRestApi } from '../../rest/CertificateAuthorityRestApi';
@@ -27,10 +27,12 @@ import Logger from '../Log/Logger';
 import SVGs from '../Svgs/Svgs';
 import Wizard from '../Wizard/Wizard';
 import WizardStep from '../WizardStep/WizardStep';
+import { EventsRestApi } from '../../rest/EventsRestApi';
 
 const SCOPE = 'generateCertificate';
 const Log = new Logger(SCOPE);
 
+// this is aka the enroll identity modal
 class GenerateCertificateModal extends Component {
 	constructor(props) {
 		super(props);
@@ -87,10 +89,12 @@ class GenerateCertificateModal extends Component {
 							cert: certificate.certificate,
 							private_key: certificate.private_key,
 						});
+						EventsRestApi.sendEnrollUserEvent(this.props.enroll_id, this.props.ca);
 						resolve();
 					})
 					.catch(error => {
 						Log.error(error);
+						EventsRestApi.sendEnrollUserEvent(this.props.enroll_id, this.props.ca, 'error');
 						reject({
 							title: 'error_generate_cert',
 							details: error,
@@ -305,7 +309,7 @@ class GenerateCertificateModal extends Component {
 	}
 
 	render() {
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		return (
 			<Wizard
 				title={this.props.selectedUser ? 'generate_cert' : 'reenroll'}
@@ -344,7 +348,7 @@ GenerateCertificateModal.propTypes = {
 	...dataProps,
 	updateState: PropTypes.func,
 	closed: PropTypes.func,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default connect(
@@ -354,4 +358,4 @@ export default connect(
 	{
 		updateState,
 	}
-)(withLocalize(GenerateCertificateModal));
+)(withTranslation()(GenerateCertificateModal));

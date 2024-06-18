@@ -13,15 +13,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
 */
-import { InlineNotification, Tab, Tabs } from 'carbon-components-react';
-import SkeletonPlaceholder from 'carbon-components-react/lib/components/SkeletonPlaceholder';
+import { InlineNotification, Tab, Tabs, SkeletonPlaceholder, TabList, TabPanels, TabPanel, Row } from "@carbon/react";
 import _ from 'lodash';
 import PropTypes from 'prop-types';
 import React, { Component } from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import emptySmartContractImage from '../../assets/images/empty_installed.svg';
-import { clearNotifications, showBreadcrumb, showError, showSuccess, updateState } from '../../redux/commonActions';
+import { clearNotifications, showBreadcrumb, showError, showSuccess, updateBreadcrumb, updateState } from '../../redux/commonActions';
 import ChannelApi from '../../rest/ChannelApi';
 import { MspRestApi } from '../../rest/MspRestApi';
 import { NodeRestApi } from '../../rest/NodeRestApi';
@@ -43,6 +42,8 @@ import Logger from '../Log/Logger';
 import PageContainer from '../PageContainer/PageContainer';
 import PageHeader from '../PageHeader/PageHeader';
 import StickySection from '../StickySection/StickySection';
+import ActionsHelper from '../../utils/actionsHelper';
+import withRouter from '../../hoc/withRouter';
 
 const SCOPE = 'channelDetails';
 const Log = new Logger(SCOPE);
@@ -59,6 +60,7 @@ class ChannelDetails extends Component {
 		this.msp_id = null;
 		this.acls = [];
 		this.anchorPeers = [];
+		this.orgNodes = [];
 		this.chaincode = [];
 		this.nOutOf = {
 			n: 1,
@@ -252,6 +254,8 @@ class ChannelDetails extends Component {
 						});
 					}
 
+					this.orgNodes = orgNodes;
+
 					const ordererNodes = _.get(config, 'channel_group.groups_map.Orderer.groups_map');
 					const orderers = Object.keys(ordererNodes);
 					for (let i in orderers) {
@@ -419,8 +423,7 @@ class ChannelDetails extends Component {
 							});
 							this.allOrderers = orderers;
 							this.consenters = l_consenters;
-							if (this.props.ordererList.length < 1)
-							{
+							if (this.props.ordererList.length < 1) {
 								this.props.updateState(SCOPE, {
 									ordererCheck: false,
 								});
@@ -808,12 +811,17 @@ class ChannelDetails extends Component {
 		);
 	}
 
+	// redirect user to the route for this node
 	openNodeDetails = node => {
 		if (node.type === 'fabric-orderer' || node.type === 'orderer') {
-			this.props.history.push('/orderer/' + encodeURIComponent(node.id) + window.location.search);
+			const drillDownUrl = '/orderer/' + encodeURIComponent(node.cluster_id) + '/' + node.id;
+			this.props.showBreadcrumb('breadcrumb_name', { name: node.id }, drillDownUrl);
+			this.props.history.push(drillDownUrl);
 		}
 		if (node.type === 'fabric-peer' || node.type === 'peer') {
-			this.props.history.push('/peer/' + encodeURIComponent(node.id) + window.location.search);
+			const drillDownUrl = '/peer/' + encodeURIComponent(node.id) + window.location.search;
+			this.props.showBreadcrumb('breadcrumb_name', { name: node.id }, drillDownUrl);
+			this.props.history.push(drillDownUrl);
 		}
 	};
 
@@ -832,7 +840,7 @@ class ChannelDetails extends Component {
 	getNodeStatus = node => {
 		let status;
 		status = node.status;
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		return node && status ? (
 			<div className="ibp-node-status-container">
 				<span
@@ -863,7 +871,7 @@ class ChannelDetails extends Component {
 	};
 
 	buildCustomTile(node) {
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		return (
 			<div>
 				<p className="ibp-node-peer-tile-name">{translate(node.type)}</p>
@@ -956,6 +964,7 @@ class ChannelDetails extends Component {
 							id: 'add_node',
 							text: 'add_node',
 							fn: this.showJoinChannelModal,
+							disabled: !ActionsHelper.canManageComponent(this.props.userInfo, this.props.feature_flags)
 						},
 					]}
 				/>
@@ -991,6 +1000,7 @@ class ChannelDetails extends Component {
 								fn: () => {
 									this.openDeleteConsenterModal(node);
 								},
+								disabled: !ActionsHelper.canManageComponent(this.props.userInfo, this.props.feature_flags),
 							},
 						];
 						if (node.tls_cert_mismatch) {
@@ -999,6 +1009,7 @@ class ChannelDetails extends Component {
 								fn: () => {
 									this.openUpdateConsenterModal(node);
 								},
+								disabled: !ActionsHelper.canManageComponent(this.props.userInfo, this.props.feature_flags),
 							});
 						}
 						return items;
@@ -1075,6 +1086,7 @@ class ChannelDetails extends Component {
 					consenters={this.consenters}
 					loading={this.props.loading}
 					isOrdererMSP={false}
+					orgNodes={this.orgNodes}
 				/>
 				<ChannelMembers
 					id="orderer"
@@ -1097,7 +1109,9 @@ class ChannelDetails extends Component {
 					loading={this.props.anchorPeersLoading}
 					disableDelete={!this.channel.orderers || !this.channel.orderers.length}
 					onDeleteAnchorPeers={this.deleteAnchorPeers}
-					translate={this.props.translate}
+					translate={this.props.t}
+					feature_flags={this.props.feature_flags}
+					userInfo={this.props.userInfo}
 				/>
 			</div>
 		);
@@ -1153,6 +1167,7 @@ class ChannelDetails extends Component {
 				label: 'add_anchor_peer',
 				quickAction: this.openAddAnchorPeerModal,
 				loadingData: !this.props.blocks.length && this.props.anchorPeersLoading,
+				disabled: !ActionsHelper.canManageComponent(this.props.userInfo, this.props.feature_flags),
 			},
 		];
 
@@ -1188,7 +1203,7 @@ class ChannelDetails extends Component {
 		}
 		let peersNotJoinedYet = this.allPeers ? this.allPeers.filter(x => !this.props.peerList.find(y => y.id === x.id)) : this.allPeers;
 		const { loading, match } = this.props;
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		const isV2 = this.isV2Channel();
 		let peer = this.channel.peers ? this.channel.peers.find(peer => peer.cert && peer.private_key) : null;
 		let peerCerts = peer
@@ -1200,23 +1215,25 @@ class ChannelDetails extends Component {
 			: null;
 		return (
 			<PageContainer>
-				<div className="bx--row">
-					<div className="bx--col-lg-4">
-						<PageHeader
-							history={this.props.history}
-							headerName={
-								match.params.channelId ? (
-									translate('channel_title', { channelName: this.props.match.params.channelId })
-								) : (
-									<SkeletonPlaceholder
-										style={{
-											height: '3rem',
-											width: '10rem',
-										}}
-									/>
-								)
-							}
-						/>
+				<Row>
+					<PageHeader
+						history={this.props.history}
+						headerName={
+							match.params.channelId ? (
+								translate('channel_title', { channelName: this.props.match.params.channelId })
+							) : (
+								<SkeletonPlaceholder
+									style={{
+										height: '3rem',
+										width: '10rem',
+									}}
+								/>
+							)
+						}
+					/>
+				</Row>
+				<Row>
+					<div className="ibm-column width-25">
 						<StickySection
 							openSettings={this.openEditChannelModal}
 							title="channel"
@@ -1229,82 +1246,96 @@ class ChannelDetails extends Component {
 							hideExport
 							hideDelete
 							hideRefreshCerts
+							feature_flags={this.props.feature_flags}
+							userInfo={this.props.userInfo}
 						/>
 					</div>
-					<div className="bx--col-lg-12">
+					<div className="ibm-column width-75 p-lr-10">
 						<div className="ibp__channel--container">
 							<Tabs aria-label="Tabs">
-								<Tab id="ibp-channel-detail-chaincode"
-									label={translate('chaincode_management')}
-								>
-									{this.props.capabilities && this.props.capabilities.application && isV2 ? (
-										<ChannelChaincode
-											channel={this.channel}
-											peerList={this.props.peerList}
-											members={this.props.members}
-											match={this.props.match}
-											ordererList={this.props.ordererList}
-										/>
-									) : (
-										this.renderInstantiatedChaincode(translate)
-									)}
-								</Tab>
-								<Tab id="ibp-channel-detail-tab-overview"
-									label={translate('transaction_overview')}
-								>
-									{this.renderTransactionOverview(translate)}
-								</Tab>
-								<Tab id="ibp-channel-detail-tab-detail"
-									label={translate('channel_details')}
-								>
-									{this.renderChannelDetails(translate)}
-								</Tab>
+								<TabList contained>
+									<Tab id="ibp-channel-detail-chaincode"
+									>
+										{translate('chaincode_management')}
+									</Tab>
+									<Tab id="ibp-channel-detail-tab-overview"
+									>
+										{translate('transaction_overview')}
+									</Tab>
+									<Tab id="ibp-channel-detail-tab-detail"
+									>
+										{translate('channel_details')}
+									</Tab>
+								</TabList>
+								<TabPanels>
+									<TabPanel>
+										{this.props.capabilities && this.props.capabilities.application && isV2 ? (
+											<ChannelChaincode
+												channel={this.channel}
+												peerList={this.props.peerList}
+												members={this.props.members}
+												match={this.props.match}
+												ordererList={this.props.ordererList}
+											/>
+										) : (
+											this.renderInstantiatedChaincode(translate)
+										)}
+									</TabPanel>
+									<TabPanel>
+										{this.renderTransactionOverview(translate)}
+									</TabPanel>
+									<TabPanel>
+										{this.renderChannelDetails(translate)}
+									</TabPanel>
+								</TabPanels>
 							</Tabs>
 						</div>
 					</div>
-					{!this.props.loading && this.props.showEditChannelModal && (
-						<ChannelModal
-							onClose={this.hideEditChannelModal}
-							onComplete={channelName => {
-								this.props.showSuccess('channel_update_request_submitted', { channelName }, SCOPE);
-								this.getChannel(() => {
-									this.getChannelDetails();
-								});
-							}}
-							channelId={this.props.match.params.channelId}
-							existingOrgs={this.props.members}
-							existingOrdererOrgs={this.props.ordererMembers}
-							existingAcls={this.acls}
-							existingBlockParams={this.blockParams}
-							existingRaftParams={this.raftParams}
-							existingCapabilities={this.capabilities}
-							existingConsenters={this.consenters}
-							existingEndorsementPolicy={this.existingEndorsementPolicy}
-							existingLifecyclePolicy={this.existingLifecyclePolicy}
-							nOutOf={this.nOutOf}
-							channelOrderer={this.orderers && this.orderers.length > 0 ? this.orderers : null}
-							channelPeers={this.props.peerList}
-							editLoading={this.props.editLoading}
-						/>
-					)}
-					{this.props.joinChannelModal && (
-						<JoinChannelModal
-							onClose={this.hideJoinChannelModal}
-							onComplete={() => {
-								this.hideJoinChannelModal();
-								this.props.showSuccess('nodes_added_successfully', {}, SCOPE);
-								this.getChannel(() => {
-									this.getChannelDetails();
-								});
-							}}
-							existingOrderer={this.orderers && this.orderers.length ? this.orderers[0] : null}
-							existingChannel={this.props.match.params.channelId}
-							existingMembers={this.props.members}
-							peers={peersNotJoinedYet}
-							isAddingNode
-						/>
-					)}
-				</div>
+				</Row>
+
+				{!this.props.loading && this.props.showEditChannelModal && (
+					<ChannelModal
+						onClose={this.hideEditChannelModal}
+						onComplete={channelName => {
+							this.props.showSuccess('channel_update_request_submitted', { channelName }, SCOPE);
+							this.getChannel(() => {
+								this.getChannelDetails();
+							});
+						}}
+						channelId={this.props.match.params.channelId}
+						existingOrgs={this.props.members}
+						existingOrdererOrgs={this.props.ordererMembers}
+						existingAcls={this.acls}
+						existingBlockParams={this.blockParams}
+						existingRaftParams={this.raftParams}
+						existingCapabilities={this.capabilities}
+						existingConsenters={this.consenters}
+						existingEndorsementPolicy={this.existingEndorsementPolicy}
+						existingLifecyclePolicy={this.existingLifecyclePolicy}
+						nOutOf={this.nOutOf}
+						channelOrderer={this.orderers && this.orderers.length > 0 ? this.orderers : null}
+						channelPeers={this.props.peerList}
+						editLoading={this.props.editLoading}
+					/>
+				)}
+				{this.props.joinChannelModal && (
+					<JoinChannelModal
+						onClose={this.hideJoinChannelModal}
+						onComplete={() => {
+							this.hideJoinChannelModal();
+							this.props.showSuccess('nodes_added_successfully', {}, SCOPE);
+							this.getChannel(() => {
+								this.getChannelDetails();
+							});
+						}}
+						existingOrderer={this.orderers && this.orderers.length ? this.orderers[0] : null}
+						existingChannel={this.props.match.params.channelId}
+						existingMembers={this.props.members}
+						peers={peersNotJoinedYet}
+						isAddingNode
+					/>
+				)}
+
 				{this.props.showAddAnchorPeer && (
 					<AddAnchorPeerModal
 						onClose={this.closeAddAnchorPeerModal}
@@ -1380,7 +1411,7 @@ ChannelDetails.propTypes = {
 	clearNotifications: PropTypes.func,
 	updateState: PropTypes.func,
 	showSuccess: PropTypes.func,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default connect(
@@ -1388,6 +1419,8 @@ export default connect(
 		let newProps = Helper.mapStateToProps(state[SCOPE], dataProps);
 		newProps['settings'] = state['settings'];
 		newProps['configtxlator_url'] = state['settings']['configtxlator_url'];
+		newProps['feature_flags'] = state['settings'] ? state['settings']['feature_flags'] : null;
+		newProps['userInfo'] = state['userInfo'] ? state['userInfo'] : null;
 		return newProps;
 	},
 	{
@@ -1395,6 +1428,7 @@ export default connect(
 		showError,
 		clearNotifications,
 		updateState,
+		updateBreadcrumb,
 		showSuccess,
 	}
-)(withLocalize(ChannelDetails));
+)(withTranslation()(withRouter(ChannelDetails)));

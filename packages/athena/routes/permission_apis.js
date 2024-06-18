@@ -145,7 +145,7 @@ module.exports = function (logger, ev, t) {
 	//--------------------------------------------------
 	// Get all api keys from the db
 	//--------------------------------------------------
-	app.get('/api/v[123]/permissions/keys', t.middleware.verify_view_action_session, (req, res) => {
+	app.get('/api/v[123]/permissions/keys', t.middleware.verify_apiKey_action_session, (req, res) => {
 		t.permissions_lib.get_api_keys(req, (err, ret) => {
 			if (err) {
 				return res.status(t.ot_misc.get_code(err)).json(err);
@@ -154,7 +154,8 @@ module.exports = function (logger, ev, t) {
 			}
 		});
 	});
-	app.get('/ak/api/v[123]/permissions/keys', t.middleware.verify_view_action_ak, (req, res) => {
+
+	app.get('/ak/api/v[123]/permissions/keys', t.middleware.verify_apiKey_action_ak, (req, res) => {
 		t.permissions_lib.get_api_keys(req, (err, ret) => {
 			if (err) {
 				return res.status(t.ot_misc.get_code(err)).json(err);
@@ -189,7 +190,7 @@ module.exports = function (logger, ev, t) {
 	//--------------------------------------------------
 	// Change password
 	//--------------------------------------------------
-	app.put('/api/v[123]/permissions/users/password', t.middleware.checkAuthentication, (req, res) => {
+	app.put('/api/v[123]/permissions/users/password', t.middleware.basic, (req, res) => {
 		t.permissions_lib.change_password(req, (err, ret) => {
 			if (err) {
 				return res.status(t.ot_misc.get_code(err)).json(err);
@@ -250,7 +251,7 @@ module.exports = function (logger, ev, t) {
 	//-----------------------------------------------------------------------------
 	// Get the current users's iam information
 	//-----------------------------------------------------------------------------
-	app.get('/api/v[123]/users/iam/info', t.middleware.verify_apiKey_action_session, function (req, res, next) {
+	app.get('/api/v[123]/users/iam/info', t.middleware.verify_view_action_session, function (req, res, next) {
 		t.permissions_lib.get_users_iam_info(req, (_, data) => {
 			res.status(data.statusCode).json(data);
 		});
@@ -264,24 +265,29 @@ module.exports = function (logger, ev, t) {
 	//--------------------------------------------------
 	// Store/create a access token  in the database (aka bearer token)
 	//--------------------------------------------------
-	app.post('/api/v3/identity/token', t.middleware.verify_apiKey_action_session, (req, res) => {
-		t.permissions_lib.create_access_token(req, (err, ret) => {
-			if (err) {
-				return res.status(t.ot_misc.get_code(err)).json(err);
-			} else {
-				return res.status(200).json(ret);
-			}
-		});
+	app.post('/api/v3/identity/token', t.middleware.verify_apiKey_bearer_action_session, (req, res) => {
+		exchange_for_token(req, res);
 	});
-	app.post('/ak/api/v3/identity/token', t.middleware.verify_apiKey_action_ak, (req, res) => {
-		t.permissions_lib.create_access_token(req, (err, ret) => {
-			if (err) {
-				return res.status(t.ot_misc.get_code(err)).json(err);
-			} else {
-				return res.status(200).json(ret);
-			}
-		});
+	app.post('/ak/api/v3/identity/token', t.middleware.verify_apiKey_bearer_action_ak, (req, res) => {
+		exchange_for_token(req, res);
 	});
+
+	function exchange_for_token(req, res) {
+		if (t.ot_misc.is_v2plus_route(req)) {
+			req._validate_path = '/ak/api/' + t.validate.pick_ver(req) + '/identity/token';
+			logger.debug('[pre-flight] setting validate route:', req._validate_path);
+		}
+
+		t.validate.request(req, res, null, () => {
+			t.permissions_lib.create_access_token(req, (err, ret) => {
+				if (err) {
+					return res.status(t.ot_misc.get_code(err)).json(err);
+				} else {
+					return res.status(200).json(ret);
+				}
+			});
+		});
+	}
 
 	//--------------------------------------------------
 	// Delete a access token  from the database (aka bearer token)
@@ -319,6 +325,19 @@ module.exports = function (logger, ev, t) {
 	});
 	app.get('/ak/api/v3/identity/token/:id', t.middleware.verify_apiKey_action_ak, (req, res) => {
 		t.permissions_lib.get_access_token(req.params.id, (err, ret) => {
+			if (err) {
+				return res.status(t.ot_misc.get_code(err)).json(err);
+			} else {
+				return res.status(200).json(ret);
+			}
+		});
+	});
+
+	//--------------------------------------------------
+	// A user that does not have access to the console is requesting access
+	//--------------------------------------------------
+	app.post('/api/v3/permissions/users/registrations', t.middleware.public, (req, res) => {
+		t.permissions_lib.register_user(req, (err, ret) => {
 			if (err) {
 				return res.status(t.ot_misc.get_code(err)).json(err);
 			} else {

@@ -16,7 +16,7 @@
 
 import PropTypes from 'prop-types';
 import React, { Component } from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import { updateState } from '../../redux/commonActions';
 import { ChannelParticipationApi } from '../../rest/ChannelParticipationApi';
@@ -30,6 +30,7 @@ import ChannelParticipationUnjoinModal from './ChannelParticipationUnjoinModal';
 import JoinOSNChannelModal from '../JoinOSNChannelModal/JoinOSNChannelModal';
 import _ from 'lodash';
 import emptyImage from '../../assets/images/empty_channels.svg';
+import ActionsHelper from '../../utils/actionsHelper';
 
 const naturalSort = require('javascript-natural-sort');
 const SCOPE = 'ChannelParticipationDetails';
@@ -107,7 +108,7 @@ class ChannelParticipationDetails extends Component {
 
 	// build the button/icons in each channel tile
 	buildCustomTile = (channel) => {
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		return (
 			<div>
 				{channel.type === 'system_channel' && (
@@ -175,7 +176,8 @@ class ChannelParticipationDetails extends Component {
 									text: 'join_channel',
 									fn: () => {
 										this.joinChannel(null);
-									}
+									},
+									disabled: !ActionsHelper.canManageComponent(this.props.userInfo, this.props.feature_flags)
 								}]
 
 								: []
@@ -236,14 +238,17 @@ ChannelParticipationDetails.propTypes = {
 	...dataProps,
 	updateState: PropTypes.func,
 	unJoinComplete: PropTypes.func,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default connect(
 	state => {
-		return Helper.mapStateToProps(state[SCOPE], dataProps);
+		let newProps = Helper.mapStateToProps(state[SCOPE], dataProps);
+		newProps['userInfo'] = state['userInfo'] ? state['userInfo'] : null;
+		newProps['feature_flags'] = state['settings'] ? state['settings']['feature_flags'] : null;
+		return newProps;
 	},
 	{
 		updateState,
 	}
-)(withLocalize(ChannelParticipationDetails));
+)(withTranslation()(ChannelParticipationDetails));

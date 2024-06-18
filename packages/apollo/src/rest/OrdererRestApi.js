@@ -13,7 +13,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
 */
-import async from 'async';
 import _ from 'lodash';
 import { promisify } from 'util';
 import Logger from '../components/Log/Logger';
@@ -35,7 +34,7 @@ const LEGACY_ORDERER_TYPE = 'orderer';
 class OrdererRestApi {
 	static systemChannel = 'testchainid';
 	static async getOrderers(skip_cache) {
-		return NodeRestApi.getNodes('fabric-orderer', skip_cache);
+		return NodeRestApi.getNodes(['fabric-orderer'], skip_cache);
 	}
 
 	/**
@@ -123,11 +122,14 @@ class OrdererRestApi {
 					grpcwp_url: Helper.normalizeHttpURL(node.grpcwp_url),
 					msp_id: node.msp_id,
 					system_channel_id: node.system_channel_id || '',
-					systemless: node.systemless ? true: false,
+					systemless: node.systemless ? true : false,
 					cluster_id: node.cluster_id,
 					cluster_name: node.cluster_name,
 					msp: node.msp,
 					migrated_from: node.migrated_from ? node.migrated_from : undefined,
+					imported: node.imported ? node.imported : undefined,
+					cluster_type: node.cluster_type ? node.cluster_type : undefined,
+					console_type: node.console_type ? node.console_type : undefined,
 				};
 				if (!_.get(newOrderer, 'msp.component.tls_cert')) {
 					_.set(newOrderer, 'msp.component.tls_cert', node.tls_cert || node.server_tls_cert);
@@ -168,10 +170,8 @@ class OrdererRestApi {
 		}
 	}
 
-	// [ ! do not use this function !]
-	// dsh todo - hunt down code using this function and replace with getClusterDetails when possible
-	static async getOrdererDetails(orderer_id, includePrivateKeyAndCert) {
-		return NodeRestApi.getNodeDetails(orderer_id, includePrivateKeyAndCert);
+	static async getOrdererDetails(orderer_id, includePrivateKeyAndCert, skip_cache) {
+		return NodeRestApi.getNodeDetails(orderer_id, includePrivateKeyAndCert, skip_cache);
 	}
 
 	static async getClusterDetails(cluster_id, includePrivateKeyAndCert) {
@@ -185,7 +185,7 @@ class OrdererRestApi {
 	static async updateOrderer(orderer) {
 		orderer.grpcwp_url = Helper.fixURL(orderer.grpcwp_url);
 		await NodeRestApi.updateNode(orderer);
-		return this.getOrdererDetails(orderer.id);
+		return this.getOrdererDetails(orderer.id, null, true);
 	}
 
 	static async removeOrdererNodeFromSystemChannel(options) {
@@ -203,48 +203,72 @@ class OrdererRestApi {
 		return this.updateConsenterIntoSystemChannel(options);
 	}
 
-	static async getUrlForConsenterUpdate(options, consenters) {
-		const orderer = await OrdererRestApi.getOrdererDetails(options.currentOrdererId || options.ordererId);
-		let url2use = null;
-		const parsedURL = urlParser.parse(orderer.api_url);
-		consenters.forEach(consenter => {
-			if (consenter.host === parsedURL.hostname && consenter.port === parsedURL.port) {
-				url2use = orderer.url2use;
+	// sometimes the selected orderer is not a consenter on the channel yet, and thus cannot be used to submit the transaction,
+	// if so find another orderer we know about that is a consenter and send the tx to that orderer
+	static async getUrlForConsenterUpdate(options, consenters, orderer) {
+		Log.debug('possible consenters on this channel', consenters);
+		Log.debug('selected orderer', orderer);
+		if (orderer) {
+			const parsedURL = urlParser.parse(orderer.api_url);
+			if (consenters && parsedURL) {
+				for (let i in consenters) {
+					const consenter = consenters[i];
+					if (consenter.host === parsedURL.hostname && Number(consenter.port) === Number(parsedURL.port) && orderer && orderer.url2use) {
+						Log.debug('the selected orderer is a consenter, will use this orderer for the tx', orderer.url2use);
+						return orderer.url2use;
+					}
+				}
 			}
-		});
-		if (url2use === null && orderer.cluster_id) {
+		}
+
+		if (orderer && orderer.cluster_id) {
+			Log.debug('the consenter list did not contain the selected orderer, so will look for another orderer node');
+
 			// If orderer is not in the consenter set, look for other nodes in the same
 			// cluster that we can use to submit the update
 			const cluster = await OrdererRestApi.getClusterDetails(orderer.cluster_id);
-			let url = null;
-			if (cluster.raft) {
-				for (let i = 0; i < cluster.raft.length && !url; i++) {
+			Log.debug('the ordering cluster details', cluster);
+			if (cluster && cluster.raft) {
+				for (let i in cluster.raft) {
 					const node = cluster.raft[i];
-					const parsedURL2 = urlParser.parse(node.api_url);
-					for (let j = 0; j < consenters.length && !url; j++) {
-						const consenter = consenters[j];
-						if (consenter.host === parsedURL2.hostname && consenter.port === parsedURL2.port) {
-							url = node.url2use;
+					if (node) {
+						const parsedURL2 = urlParser.parse(node.api_url);
+						for (let j in consenters) {
+							const consenter = consenters[j];
+							if (consenter && parsedURL2 && consenter.host === parsedURL2.hostname && Number(consenter.port) === Number(parsedURL2.port) && node.url2use) {
+								Log.debug('found alternative orderer that is a consenter, will use this orderer for the tx', node.url2use);
+								return node.url2use;
+							}
 						}
 					}
 				}
 			}
-			if (!url) {
-				url = orderer.url2use;
-			}
-			return url;
+		}
+
+		if (orderer && orderer.url2use) {
+			Log.warn('did not find a valid orderer to use for this tx, defaulting to selected orderer', orderer.url2use);
+			return orderer.url2use;
 		} else {
-			if (!url2use) {
-				url2use = orderer.url2use;
-			}
-			return url2use;
+			Log.error('did not find any orderer to use for this tx');
+			return null;
 		}
 	}
 
+	/*
+	options = {
+		ordererId: <id of the node we are adding/removing/changing>,
+		cluster_id: <id of the ordering service cluster>,
+		configtxlator_url: ""
+	}
+	*/
 	static async updateConsenterIntoSystemChannel(options) {
 		let channel_config;
 		try {
-			channel_config = await OrdererRestApi.getSystemChannelConfig(options.currentOrdererId || options.ordererId, options.configtxlator_url);
+			const opts = {
+				cluster_id: options.cluster_id,
+				ordererId: options.ordererId
+			};
+			channel_config = await OrdererRestApi.getSystemChannelConfig(opts, options.configtxlator_url);
 		} catch (error) {
 			if (
 				options.type === 'remove' &&
@@ -261,7 +285,15 @@ class OrdererRestApi {
 				throw error;
 			}
 		}
-		const orderer = await OrdererRestApi.getOrdererDetails(options.ordererId, true);
+
+		let orderer;
+		try {
+			orderer = await OrdererRestApi.getOrdererDetails(options.ordererId, true);
+		} catch (error) {
+			Log.error('Unable to get orderer data from console thus unable to updateConsenterIntoSystemChannel', error);
+			throw error;
+		}
+
 		let original_json = channel_config;
 		let updated_json = JSON.parse(JSON.stringify(channel_config));
 		options.original_json = original_json;
@@ -270,7 +302,7 @@ class OrdererRestApi {
 		let identity = OrdererRestApi.getCertsAssociatedWithMsp(orderer.associatedIdentities, orderer.msp_id);
 		// get the consenter section
 		const original_length = _.get(updated_json, 'channel_group.groups.Orderer.values.ConsensusType.value.metadata.consenters.length');
-		const channel_group = await this.modifyConsenter(options, updated_json.channel_group);
+		const channel_group = await this.modifyConsenter(options, updated_json.channel_group, orderer);
 		const consenters = channel_group.groups.Orderer.values.ConsensusType.value.metadata.consenters;
 		const addingOrRemoving = consenters.length !== original_length;
 		const updatingCerts = options.type === 'update';
@@ -281,7 +313,7 @@ class OrdererRestApi {
 			options.cluster_id = orderer.cluster_id;
 			options.client_cert_b64pem = identity.cert;
 			options.client_prv_key_b64pem = identity.private_key;
-			options.orderer_host = await OrdererRestApi.getUrlForConsenterUpdate(options, consenters);
+			options.orderer_host = await OrdererRestApi.getUrlForConsenterUpdate(options, consenters, orderer);
 			await ChannelApi.updateChannel(options);
 			return { message: 'ok' };
 		} else {
@@ -289,9 +321,9 @@ class OrdererRestApi {
 		}
 	}
 
-	static async modifyConsenter(options, channel_group) {
+	static async modifyConsenter(options, channel_group, orderer) {
 		let consenterNode = channel_group.groups.Orderer.values.ConsensusType.value.metadata.consenters;
-		let ordererAddresses = channel_group.values.OrdererAddresses.value.addresses;
+		let ordererAddresses = _.get(channel_group, 'values.OrdererAddresses.value.addresses', []);
 
 		let parsedURL = urlParser.parse(options.consenter_url || options.api_url);
 		const host = parsedURL.hostname;
@@ -305,7 +337,7 @@ class OrdererRestApi {
 			});
 			return channel_group;
 		} else if (options.type === 'add') {
-			const orderer = await NodeRestApi.getNodeDetailsFromDeployer(options.ordererId);
+			//const orderer = await NodeRestApi.getNodeDetailsFromDeployer(options.ordererId);
 			const tlscert = _.get(orderer, 'msp.component.tls_cert');
 			if (tlscert) {
 				const nodeToAdd = {
@@ -340,67 +372,91 @@ class OrdererRestApi {
 		}
 	}
 
-	static async getSystemChannelConfig(ordererId, configtxlator_url) {
-		let orderer;
+	/* Get the system channel config data
+		opts: {
+			ordererId: <id of an orderer> 									// optional (required if cluster_id is blank)
+			cluster_id: <ordering cluster id of an orderering service> 		// optional  (required if ordererId is blank)
+		}
+	*/
+	static async getSystemChannelConfig(opts, configtxlator_url) {
+		let orderer = null;
 		try {
-			orderer = await OrdererRestApi.getOrdererDetails(ordererId, false);
+			if (opts.cluster_id) {
+				orderer = await OrdererRestApi.getClusterDetails(opts.cluster_id, false);
+			} else {
+				orderer = await OrdererRestApi.getOrdererDetails(opts.ordererId, false);
+			}
 		} catch (error) {
-			Log.error('Unable to get orderer', ordererId);
+			Log.error('Unable to get orderer data from console thus unable to get the system channel config', opts, error);
 			return; // todo really?  Shouldn't an error be thrown here?
 		}
 
 		try {
 			let options = {
-				ordererId,
-				channelId: orderer.system_channel_id || this.systemChannel,
+				ordererId: orderer ? orderer.id : null,
+				cluster_id: orderer ? orderer.cluster_id : null,
+				channelId: orderer ? (orderer.system_channel_id || this.systemChannel) : null,
 				configtxlator_url,
 			};
-			return await OrdererRestApi.getChannelConfig(options);
+			return await OrdererRestApi.getChannelConfig(options, orderer);
 		} catch (error) {
 			error.message = 'failed to retrieve system channel';
 			throw error;
 		}
 	}
 
-	static async getAllChannelNamesFromOrderer(options) {
-		let on_block_number = 0;
+	// get all channel ids by walking the system channel block by block
+	static async getAllChannelNamesFromOrderer(options, orderer_obj) {
 		let channel_names = [];
-		let stopexec = false;
-		await async.until(
-			async.asyncify(async () => {
-				return stopexec;
-			}),
-			async.asyncify(async () => {
-				let blocks = [];
-				const BLOCKS_AT_ONCE = Number(options.blocks_at_once) || 2;
-				for (let i = on_block_number; i < on_block_number + BLOCKS_AT_ONCE; i++) {
-					blocks.push(i);
-				}
-				try {
-					await async.eachLimit(
-						blocks,
-						BLOCKS_AT_ONCE,
-						async.asyncify(async block_number => {
-							on_block_number++;
-							let optscopy = { ...options };
-							optscopy.start_block = block_number;
-							optscopy.stop_block = block_number;
-							const channelBlock = await OrdererRestApi.getSystemChannelBlockFromOrderer(optscopy);
-							const _block_binary2json = promisify(ChannelApi._block_binary2json);
-							const resp = await _block_binary2json(channelBlock, options.configtxlator_url);
-							const channel_id = _.get(resp, 'data.data[0].payload.data.payload.header.channel_header.channel_id');
-							if (channel_id) channel_names.push(channel_id);
-						})
-					);
-				} catch (error2) {
-					stopexec = true;
-				}
-			})
-		);
+		let optsCopy = { ...options };
+		optsCopy.start_block = 0;							// start at the beginning (block 0)
+		optsCopy.stop_block = null;							// setting null will go to to the end
+		const _block_binary2json = promisify(ChannelApi._block_binary2json);
+		let resp = null;
+		try {
+			resp = await OrdererRestApi.getSystemChannelBlockFromOrderer(optsCopy, orderer_obj);
+		} catch (error2) {
+			Log.error('caught error getting channels be reading system channel block by block, error:', error2);
+		}
 
+		// iter on blocks and look for the channel ids
+		for (let x in resp) {
+			if (resp[x].error === true) {
+				if (resp[x].grpc_resp && resp[x].grpc_resp.status === 404) {
+					Log.debug('rec 404 code frm orderer - the block dne - this is expected we\'ve reached the end of the line', resp[x].stitch_msg);
+				} else {
+					Log.error('error getting blocks from orderer.', resp[x]);
+				}
+			} else {
+				try {
+
+					// parse block with configtxlator
+					const fmt_resp = await _block_binary2json(resp[x].grpc_message, options.configtxlator_url);
+					if (fmt_resp) {
+						const channel_id = _.get(fmt_resp, 'data.data[0].payload.data.payload.header.channel_header.channel_id');
+						if (channel_id) {
+							channel_names.push(channel_id);			// store the channel id
+						}
+					}
+				} catch (c_err) {
+					Log.error('caught error getting convering block w/configtxlator:', c_err);
+					break;
+				}
+			}
+			/*	// dsh todo get local decoder to work
+			if (resp[x].data && resp[x].data.block) {
+				const block = resp[x].data.block;
+				//const channel_id = _.get(fmt_resp, 'data.data[0].payload.data.payload.header.channel_header.channel_id');
+				const channel_id = _.get(block, 'data.data_list[0].envelope.payload.data.payload.header.channel_header.channel_id');
+				if (channel_id) {
+					channel_names.push(channel_id);
+				}
+			}*/
+		}
 		channel_names.sort((a, b) => {
 			return naturalSort(a, b);
 		});
+		Log.debug('walked system channel via orderer - found channels:', channel_names);
 		return channel_names;
 	}
 
@@ -419,14 +475,13 @@ class OrdererRestApi {
 		return certs;
 	}
 
-	static async getSystemChannelBlockFromOrderer(options) {
-		const orderer = await OrdererRestApi.getOrdererDetails(options.ordererId, true);
-		if (orderer.cluster_id && !options.altUrls) {
-			const cluster = await OrdererRestApi.getClusterDetails(orderer.cluster_id, true);
+	// this function recurses if the api failed, the next iteration uses another orderer url..
+	static async getSystemChannelBlockFromOrderer(options, orderer) {
+		if (!options.altUrls) {
 			options.altUrls = [];
-			if (cluster.raft) {
-				cluster.raft.forEach(node => {
-					const certs = OrdererRestApi.getCertsAssociatedWithMsp(cluster.associatedIdentities, node.msp_id);
+			if (orderer.raft) {
+				orderer.raft.forEach(node => {
+					const certs = OrdererRestApi.getCertsAssociatedWithMsp(orderer.associatedIdentities, node.msp_id);
 					options.altUrls.push({
 						url: node.url2use,
 						msp_id: node.msp_id,
@@ -471,18 +526,34 @@ class OrdererRestApi {
 			error.nodeName = orderer.display_name;
 			Log.error(error);
 			if (options.altUrls && options.altUrls.length > 0) {
-				return OrdererRestApi.getSystemChannelBlockFromOrderer(options);
+				return OrdererRestApi.getSystemChannelBlockFromOrderer(options, orderer);
 			} else {
 				throw error;
 			}
 		}
-		return resp.grpc_message;
+		return resp;
 	}
 
-	static async getChannelConfigBlock(options) {
-		const orderer = await OrdererRestApi.getOrdererDetails(options.ordererId, true);
-		if (orderer.cluster_id && !options.altUrls) {
-			const cluster = await OrdererRestApi.getClusterDetails(orderer.cluster_id, true);
+	// get config block from an orderer
+	/*
+		options = {
+			ordererId: '',
+			channelId: '',
+			configtxlator_url: '',
+			altUrls: []										// optional
+			cluster_id: '',									// optional
+		}
+	*/
+	static async getChannelConfigBlock(options, orderer) {
+		if (!orderer) {
+			if (options.cluster_id) {
+				orderer = await OrdererRestApi.getClusterDetails(options.cluster_id, true);
+			} else {
+				orderer = await OrdererRestApi.getOrdererDetails(options.ordererId, true);
+			}
+		}
+		if (!options.altUrls) {
+			const cluster = orderer;
 			options.altUrls = [];
 			if (cluster.raft) {
 				cluster.raft.forEach(node => {
@@ -513,11 +584,10 @@ class OrdererRestApi {
 				cert: ordererCerts ? ordererCerts.cert : null,
 				private_key: ordererCerts ? ordererCerts.private_key : null,
 			};
-		if (!options.identityInfo) options.identityInfo = {};
 		const opts = {
-			msp_id: options.identityInfo.msp_id || test.msp_id,
-			client_cert_b64pem: options.identityInfo.cert || test.cert,
-			client_prv_key_b64pem: options.identityInfo.private_key || test.private_key,
+			msp_id: test.msp_id,
+			client_cert_b64pem: test.cert,
+			client_prv_key_b64pem: test.private_key,
 			orderer_host: test.url,
 			configtxlator_url: options.configtxlator_url,
 			include_bin: true,
@@ -565,12 +635,12 @@ class OrdererRestApi {
 			Log.error(error);
 			throw error;
 		}
-		return resp.data.data[0].payload.data.config;
+		return resp?.data?.data[0]?.payload?.data?.config || {};
 	}
 
 	/*
 	  options = {
-		 ordererId: ordererId,
+		 cluster_id: <id of ordering service>,
 		 configtxlator_url: configtxlator_url,
 		 msp_payload: msp_payload
 	  }
@@ -578,7 +648,7 @@ class OrdererRestApi {
 	*/
 
 	static async addMSP(options) {
-		const channel_config = await OrdererRestApi.getSystemChannelConfig(options.ordererId, options.configtxlator_url);
+		const channel_config = await OrdererRestApi.getSystemChannelConfig({ cluster_id: options.cluster_id }, options.configtxlator_url);
 		let original_json = channel_config;
 		let updated_json = JSON.parse(JSON.stringify(channel_config));
 
@@ -626,7 +696,7 @@ class OrdererRestApi {
 			first_consortium.groups[options.payload.msp_id] = template_msp;
 		}
 
-		const orderer = await OrdererRestApi.getOrdererDetails(options.ordererId, true);
+		const orderer = await OrdererRestApi.getClusterDetails(options.cluster_id, true);
 		let identity = OrdererRestApi.getCertsAssociatedWithMsp(orderer.associatedIdentities, orderer.msp_id);
 		options.original_json = original_json;
 		options.updated_json = updated_json;
@@ -644,7 +714,7 @@ class OrdererRestApi {
 	}
 
 	static async updateAdvancedConfig(options) {
-		const channel_config = await OrdererRestApi.getSystemChannelConfig(options.ordererId, options.configtxlator_url);
+		const channel_config = await OrdererRestApi.getSystemChannelConfig(options, options.configtxlator_url);
 		let original_json = channel_config;
 		let updated_json = JSON.parse(JSON.stringify(channel_config));
 
@@ -717,10 +787,21 @@ class OrdererRestApi {
 			updated_json.channel_group.groups.Orderer.values.ConsensusType.value.state = 'STATE_NORMAL';
 		}
 
-		Log.debug('Updated orderer block parameters: ', updated_json);
-		Log.debug('Updating orderer config to: ', options);
+		Log.debug('Updated orderer config as json: ', updated_json);
+		Log.debug('Update orderer config options: ', options);
 
-		const orderer = await OrdererRestApi.getOrdererDetails(options.ordererId, true);
+		let orderer;
+		try {
+			if (options.cluster_id) {
+				orderer = await OrdererRestApi.getClusterDetails(options.cluster_id, true, true);
+			} else {
+				orderer = await OrdererRestApi.getOrdererDetails(options.ordererId, true, true);
+			}
+		} catch (error) {
+			Log.error('Unable to get orderer data from console thus unable to update config', error);
+			throw error;
+		}
+
 		let identity = OrdererRestApi.getCertsAssociatedWithMsp(orderer.associatedIdentities, orderer.msp_id);
 		options.original_json = original_json;
 		options.updated_json = updated_json;
@@ -798,7 +879,7 @@ class OrdererRestApi {
 	}
 
 	static async deleteMSP(options) {
-		const channel_config = await OrdererRestApi.getSystemChannelConfig(options.ordererId, options.configtxlator_url);
+		const channel_config = await OrdererRestApi.getSystemChannelConfig({ cluster_id: options.cluster_id }, options.configtxlator_url);
 		let original_json = channel_config;
 		let updated_json = JSON.parse(JSON.stringify(channel_config));
 		const first_consortium = ChannelUtils.getSampleConsortiumOrFirstKey(updated_json.channel_group.groups.Consortiums.groups);
@@ -811,7 +892,7 @@ class OrdererRestApi {
 			delete i_consort_groups[options.payload.msp_id];
 		}
 
-		const orderer = await OrdererRestApi.getOrdererDetails(options.ordererId, true);
+		const orderer = await OrdererRestApi.getClusterDetails(options.cluster_id, true, true);
 		let identity = OrdererRestApi.getCertsAssociatedWithMsp(orderer.associatedIdentities, orderer.msp_id);
 		options.original_json = original_json;
 		options.updated_json = updated_json;
@@ -1046,7 +1127,7 @@ class OrdererRestApi {
 
 	static async listIncludesAllConsentersForCluster(list, cluster_id, configtxlator_url, feature_flags) {
 		if (!cluster_id) return true;
-		const channel_config = await OrdererRestApi.getSystemChannelConfig(cluster_id, configtxlator_url);
+		const channel_config = await OrdererRestApi.getSystemChannelConfig({ cluster_id: cluster_id }, configtxlator_url);
 		let res = true;
 		const json = JSON.parse(JSON.stringify(channel_config));
 		const consenters = _.get(json, 'channel_group.groups.Orderer.values.ConsensusType.value.metadata.consenters');
@@ -1090,6 +1171,7 @@ class OrdererRestApi {
 		if (current.location === 'ibm_saas' && current.consenter_proposal_fin) {
 			const options = {
 				ordererId: current.id,
+				cluster_id: current.cluster_id,
 				configtxlator_url,
 			};
 			await OrdererRestApi.removeOrdererNodeFromSystemChannel(options);
@@ -1105,7 +1187,7 @@ class OrdererRestApi {
 		const headers = {
 			'cache-control': 'no-cache',
 		};
-		return RestApi.put(`/api/saas/v2/components/${ordererId}/config`, body, headers);
+		return RestApi.put(`/api/v3/kubernetes/components/${ordererId}/config`, body, headers);
 	}
 
 	static async getOrdererURL(orderer, consenters) {

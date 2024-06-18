@@ -12,11 +12,11 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
-*/
-import { InlineNotification } from 'carbon-components-react';
+ */
+import { InlineNotification } from '@carbon/react';
 import PropTypes from 'prop-types';
 import React, { Component } from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import { updateState } from '../../redux/commonActions';
 import Helper from '../../utils/helper';
@@ -31,18 +31,14 @@ class AuthSetupAddUsers extends Component {
 		if (this.props.error) {
 			return (
 				<div className="ibp-add-users ibp-error-panel">
-					<InlineNotification kind="error"
-						title={translate(this.props.error)}
-						subtitle=""
-						hideCloseButton={true}
-					/>
+					<InlineNotification kind="error" title={translate(this.props.error)} subtitle="" hideCloseButton={true} />
 				</div>
 			);
 		}
 	}
 
 	render = () => {
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		return (
 			<div>
 				<p className="ibp__auth-title">{translate('admin_details')}</p>
@@ -66,10 +62,7 @@ class AuthSetupAddUsers extends Component {
 
 				{this.renderError(translate)}
 				<div className="ibp__auth-configuration--buttons-container">
-					<button id="auth-back-btn"
-						onClick={this.props.onBack}
-						className="ibp__auth-configuration--buttons ibp__auth-configuration--back-button"
-					>
+					<button id="auth-back-btn" onClick={this.props.onBack} className="ibp__auth-configuration--buttons ibp__auth-configuration--back-button">
 						{translate('back')}
 					</button>
 					<button
@@ -97,14 +90,14 @@ AuthSetupAddUsers.propTypes = {
 	updateState: PropTypes.func,
 	onBack: PropTypes.func,
 	onNext: PropTypes.func,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default connect(
-	state => {
+	(state) => {
 		return Helper.mapStateToProps(state[SCOPE], dataProps);
 	},
 	{
 		updateState,
 	}
-)(withLocalize(AuthSetupAddUsers));
+)(withTranslation()(AuthSetupAddUsers));

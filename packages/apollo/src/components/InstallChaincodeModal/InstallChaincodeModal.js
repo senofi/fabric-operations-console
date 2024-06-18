@@ -15,7 +15,7 @@
  */
 import PropTypes from 'prop-types';
 import React, { Component } from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import { updateState } from '../../redux/commonActions';
 import { EventsRestApi } from '../../rest/EventsRestApi';
@@ -25,7 +25,6 @@ import FileUploader from '../FileUploader/FileUploader';
 import Form from '../Form/Form';
 import Logger from '../Log/Logger';
 import SVGs from '../Svgs/Svgs';
-import TranslateLink from '../TranslateLink/TranslateLink';
 import Wizard from '../Wizard/Wizard';
 import WizardStep from '../WizardStep/WizardStep';
 
@@ -219,17 +218,7 @@ class InstallChaincodeModal extends Component {
 						.then(resp => {
 							Log.debug('Install chaincode on ', peer.id, ' response: ', resp);
 							this.props.onComplete(this.props.uploadedFileDetails.name, this.props.uploadedFileDetails.version);
-							if (window.trackEvent) {
-								window.trackEvent('Started Process', {
-									processType: 'Smart Contract',
-									process: peer,
-									tenantId: this.props.CRN.instance_id,
-									successFlag: true,
-									accountGuid: this.props.CRN.account_id,
-									milestoneName: 'Install smart contract - Success',
-									'user.email': this.props.userInfo.email,
-								});
-							}
+
 							// send async event... don't wait
 							EventsRestApi.sendInstallCCEvent(this.props.uploadedFileDetails.name, this.props.uploadedFileDetails.version, peer);
 							resolve();
@@ -257,17 +246,9 @@ class InstallChaincodeModal extends Component {
 									details: error,
 								},
 							});
-							if (window.trackEvent) {
-								window.trackEvent('Started Process', {
-									processType: 'Smart Contract',
-									process: peer,
-									tenantId: this.props.CRN.instance_id,
-									successFlag: false,
-									accountGuid: this.props.CRN.account_id,
-									milestoneName: 'Install smart contract - Fail',
-									'user.email': this.props.userInfo.email,
-								});
-							}
+
+							// send async event... don't wait
+							EventsRestApi.sendInstallCCEvent(this.props.uploadedFileDetails.name, this.props.uploadedFileDetails.version, peer, 'error');
 							reject();
 						});
 				});
@@ -406,7 +387,7 @@ class InstallChaincodeModal extends Component {
 	}
 
 	render() {
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		return (
 			<Wizard
 				error={this.props.error}
@@ -426,7 +407,6 @@ class InstallChaincodeModal extends Component {
 						{translate('find_more_here')}
 					</a>
 				</p>
-				<TranslateLink text="smart_contract_subtext" />
 				{this.renderUploadPackage(translate)}
 				{this.renderPeerSelection(translate)}
 			</Wizard>
@@ -452,7 +432,7 @@ InstallChaincodeModal.propTypes = {
 	onComplete: PropTypes.func,
 	onClose: PropTypes.func,
 	updateState: PropTypes.func,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default connect(
@@ -466,4 +446,4 @@ export default connect(
 	{
 		updateState,
 	}
-)(withLocalize(InstallChaincodeModal));
+)(withTranslation()(InstallChaincodeModal));

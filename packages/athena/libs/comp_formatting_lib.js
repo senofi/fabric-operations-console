@@ -43,13 +43,9 @@ module.exports = function (logger, ev, t) {
 			doc.name = doc.name || doc.display_name || doc.short_name;	// "name" is another legacy field
 			doc.display_name = doc.display_name || doc.name;
 			doc.short_name = doc.short_name || doc.id;	// copy doc id to short name, [04/22/2019 short name and doc id are the same now]
-
 			doc.tls_cert = doc.tls_cert || doc.pem;		// "pem" is legacy, tls_cert is the TLS certificate as b64 pem, needed for apollo
-			doc.backend_addr = doc.api_url;				// build legacy field for apollo
 
 			if (doc.type === ev.STR.CA) {
-				doc.ca_url = doc.api_url || doc.ca_url;	// build legacy field for apollo
-
 				if (t.ot_misc.is_v2plus_route(req) && t.component_lib.include_ca_data(req)) {
 					if (all_ca_info && doc.id) {			// overwrite or append data that came from the CA
 						const ca_info = all_ca_info[doc.id];
@@ -74,14 +70,6 @@ module.exports = function (logger, ev, t) {
 			if (doc.type === ev.STR.ORDERER) {
 				doc.consenter_proposal_fin = (doc.consenter_proposal_fin === false) ? false : true;	// legacy docs should be set to `true`
 				doc.system_channel_id = (typeof doc.system_channel_id === 'string') ? doc.system_channel_id : ev.SYSTEM_CHANNEL_ID;
-			}
-
-			if (t.ot_misc.detect_ak_route(req)) {
-				if (doc.configoverride) {
-					doc.config_override = JSON.parse(JSON.stringify(doc.configoverride));	// copy to rename it
-					delete doc.configoverride;			// remove legacy name
-				}
-				doc = exports.redact_ak(req, doc);
 			}
 
 			// redact enroll id/secret (legacy code stored these fields, new code does not)
@@ -130,16 +118,24 @@ module.exports = function (logger, ev, t) {
 				}
 			}
 
-			// legacy ingress URL handling (switch urls for legacy component compatibility)
-			// if component is migrated from IBP, return the SaaS operator style URLs, else return OS operator style
+			// by default we use the *open source* style urls, however if a component is migrated we don't UNLESS it also has the preferred_url set
 			if (doc.migrated_from === ev.STR.LOCATION_IBP_SAAS) {
-				doc.api_url = doc.api_url_saas || undefined;
-				doc.operations_url = doc.operations_url_saas || undefined;
-				doc.osnadmin_url = doc.osnadmin_url_saas || undefined;
+				if (doc.preferred_url === ev.STR.OPEN_SOURCE_STYLE) {
+					// use the *open source* style urls
+					// <os urls are already set, do nothing>
+				} else {
+					// use the *legacy* style urls
+					doc.api_url = doc.api_url_saas || doc.api_url;
+					doc.operations_url = doc.operations_url_saas || doc.operations_url;
+					doc.osnadmin_url = doc.osnadmin_url_saas || doc.osnadmin_url;
 
-				// grpcwp_url is different, since console controls it entirely, we should always use the OS operator style (the new style)
-				// b/c there is no good reason not to transition, and this makes 1 less corner case to worry about going forward
-				// doc.grpcwp_url = doc.grpcwp_url_saas || undefined;		// don't uncomment, use this field as is
+					// grpcwp_url is different, since console controls it entirely, we should always use the open source operator style (the new style)
+					// b/c there is no good reason not to transition, and this makes 1 less corner case to worry about going forward
+					// doc.grpcwp_url = doc.grpcwp_url_saas || undefined;
+				}
+			} else {
+				// use the *open source* style urls
+				// <os urls are already set, do nothing>
 			}
 
 			// remove legacy ingress routes from output, the URL switching was handled above (if applicable)
@@ -147,6 +143,35 @@ module.exports = function (logger, ev, t) {
 			delete doc.operations_url_saas;
 			delete doc.osnadmin_url_saas;
 			delete doc.grpcwp_url_saas;
+
+			doc.backend_addr = doc.api_url;				// build legacy field for apollo
+			if (doc.type === ev.STR.CA) {
+				doc.ca_url = doc.api_url || doc.ca_url;	// build legacy field for apollo
+			}
+
+			if (t.ot_misc.detect_ak_route(req)) {
+				if (doc.configoverride) {
+					doc.config_override = JSON.parse(JSON.stringify(doc.configoverride));	// copy to rename it
+					delete doc.configoverride;			// remove legacy name
+				}
+				doc = exports.redact_ak(req, doc);
+			}
+
+			// remove sensitive fields from a CA response
+			if (doc.ca && doc.ca.db) {
+				delete doc.ca.db.datasource;
+			}
+			if (doc.config_override && doc.config_override.ca && doc.config_override.ca.db) {
+				delete doc.config_override.ca.db.datasource;
+			}
+
+			// remove sensitive fields from a TLS CA response
+			if (doc.tlsca && doc.tlsca.db) {
+				delete doc.tlsca.db.datasource;
+			}
+			if (doc.config_override && doc.config_override.tlsca && doc.config_override.tlsca.db) {
+				delete doc.config_override.tlsca.db.datasource;
+			}
 		}
 
 		return doc;										// don't sort here, sort right before responding
@@ -380,6 +405,9 @@ module.exports = function (logger, ev, t) {
 			node_ou: conformed_dep_resp.node_ou,
 			ecert: conformed_dep_resp.ecert,
 			ca_root_certs: conformed_dep_resp.conformed_dep_resp,
+			imported: false,														// if they are using this api, its not an imported component
+			cluster_type: ev.INFRASTRUCTURE,										// remember what type of k8s they have for this comp
+			console_type: ev.CONSOLE_TYPE,											// remember what type of console built this comp
 
 			//config: incoming_body.config,											// athena doesn't need the field, its private
 			//crypto: incoming_body.crypto,											// athena doesn't need the field, its private

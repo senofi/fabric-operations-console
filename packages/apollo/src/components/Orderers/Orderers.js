@@ -16,7 +16,7 @@
 import _ from 'lodash';
 import PropTypes from 'prop-types';
 import React, { Component } from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import { clearNotifications, showError, showInfo, showSuccess, updateState } from '../../redux/commonActions';
 import { OrdererRestApi } from '../../rest/OrdererRestApi';
@@ -150,7 +150,7 @@ class Orderers extends Component {
 			return naturalSort(a.name, b.name);
 		});
 		this.props.updateState(SCOPE, { ordererList });
-		NodeStatus.getStatus(newOrderers, SCOPE, 'ordererList');
+		NodeStatus.getStatus(newOrderers, SCOPE, 'ordererList', null, 50);
 		this.props.clearNotifications(SCOPE + '_HELP');
 	};
 
@@ -159,7 +159,7 @@ class Orderers extends Component {
 	};
 
 	buildCustomTile(orderer) {
-		const isPatchAvailable = orderer.isUpgradeAvailable && orderer.location === 'ibm_saas' && ActionsHelper.canCreateComponent(this.props.userInfo);
+		const isPatchAvailable = orderer.isUpgradeAvailable && orderer.location === 'ibm_saas' && ActionsHelper.canCreateComponent(this.props.userInfo, this.props.feature_flags);
 		let status = orderer.status;
 		if (status !== 'stopped' && status !== 'running' && status !== 'running_partial') {
 			status = 'unknown';
@@ -181,7 +181,7 @@ class Orderers extends Component {
 
 	getOrdererStatus = orderer => {
 		let status = orderer.status;
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		let className = 'ibp-node-status-skeleton';
 
 		if (status === false) {
@@ -218,13 +218,11 @@ class Orderers extends Component {
 
 	getButtons() {
 		let buttons = [];
-		let importOption = ActionsHelper.canImportComponent(this.props.userInfo) || ActionsHelper.canCreateComponent(this.props.userInfo);
-		if (importOption) {
-			buttons.push({
-				text: this.props.feature_flags?.import_only_enabled ? 'import_only_orderer' : 'add_orderer',
-				fn: this.openImportOrdererModal,
-			});
-		}
+		buttons.push({
+			text: this.props.feature_flags?.import_only_enabled ? 'import_only_orderer' : 'add_orderer',
+			fn: this.openImportOrdererModal,
+			disabled: !ActionsHelper.canImportComponent(this.props.userInfo, this.props.feature_flags) && !ActionsHelper.canCreateComponent(this.props.userInfo, this.props.feature_flags),
+		});
 		return buttons;
 	}
 
@@ -295,7 +293,7 @@ class Orderers extends Component {
 									return (
 										<span>
 											<div className={'ibp-table-status ibp-table-status-' + status} />
-											{this.props.translate(status)}
+											{this.props.t(status)}
 										</span>
 									);
 								},
@@ -326,7 +324,7 @@ Orderers.propTypes = {
 	clearNotifications: PropTypes.func,
 	showError: PropTypes.func,
 	showInfo: PropTypes.func,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default connect(
@@ -343,4 +341,4 @@ export default connect(
 		showSuccess,
 		updateState,
 	}
-)(withLocalize(Orderers));
+)(withTranslation()(Orderers));

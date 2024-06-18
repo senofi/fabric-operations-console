@@ -22,7 +22,6 @@ const tools = {										// stateless util libs should go here, ~8% faster start
 	fs: require('fs'),
 	path: require('path'),
 	async: require('async'),
-	request: require('request'),
 	crypto: require('crypto'),
 	uuidv4: require('uuid/v4'),
 	yaml: require('js-yaml'),
@@ -31,7 +30,9 @@ const tools = {										// stateless util libs should go here, ~8% faster start
 	os: require('os'),
 	NodeCache: require('node-cache'),
 	winston: require('winston'),
+	axios: require('axios'),
 };
+tools.request = require('../../libs/request_axios.js')(tools.axios);
 tools.log_lib = require('../../libs/log_lib.js')(tools);
 
 // create logger objects but keep the test logs free of clutter
@@ -61,12 +62,12 @@ const default_settings = require('../../json_docs/default_settings_doc.json');
 
 const ev = {
 	DB_COMPONENTS: 'athena_components',
-	DB_SYSTEM: DB_SYSTEM, //'athena_systems',
+	DB_SYSTEM: DB_SYSTEM,
 	DB_CONNECTION_STRING: DB_CONNECTION_STRING,
 	DESIGN_DOC: DESIGN_DOC,
 	AUTH_SCHEME: 'appid',
 	HOST_URL: 'http://localhost:3000',
-	HOST_WHITE_LIST: ['.*'],
+	URL_SAFE_LIST: ['.*'],
 	SESSION_CACHE_ENABLED: true,
 	CONFIGTXLATOR_URL_ORIGINAL: 'http://localhost:3000',
 	STR: {
@@ -93,7 +94,7 @@ const ev = {
 		RAFT: 'etcdraft',									// deployer uses this value for orderertype
 		ATHENA_RAFT: 'raft',								// athena uses this value for orderer_type
 		CREATE_ACTION: 'blockchain.components.create',
-		DELETE_ACTION: 'blockchain.components.delete',		// delete is for saas/created
+		DELETE_ACTION: 'blockchain.components.delete',		// delete is for deployed/created
 		REMOVE_ACTION: 'blockchain.components.remove',		// remove is for imported
 		IMPORT_ACTION: 'blockchain.components.import',
 		EXPORT_ACTION: 'blockchain.components.export',
@@ -205,8 +206,6 @@ const ev = {
 	MIN_USERNAME_LEN: 6,
 	MAX_USERNAME_LEN: 64,
 	REGEX: default_settings.regex,
-	GRPCWPP_TIMEOUT: 300000,
-	ACTIVITY_TRACKER_PATH: './logs',
 	LOCKOUT_LIMIT: 4,
 	HTTP_METRICS_ROUTE: '/api/v[123]/http_metrics',
 	HEALTHCHECK_ROUTE: '/api/v3/healthcheck',
@@ -237,6 +236,18 @@ ev.ROLES_TO_ACTIONS[ev.STR.READER_ROLE] = [
 ev.PROXY_TLS_HTTP_URL = ev.HOST_URL;
 ev.PROXY_TLS_WS_URL = ev.HOST_URL;
 ev.PROXY_TLS_FABRIC_REQS = true;
+ev.IBM_ID = {
+	STRATEGY_NAME: 'ibmcloud',
+};
+ev.OIDC = {
+	STRATEGY_NAME: 'ICPOIDCStrategy',
+};
+ev.LDAP = {
+	STRATEGY_NAME: 'LDAPStrategy',
+};
+ev.OAUTH = {
+	STRATEGY_NAME: 'GenericStrategy',
+};
 
 // middleware containing testing functions
 const test_middleware = require('../testing-lib/test-middleware');
@@ -285,6 +296,7 @@ if (!tools.fs.existsSync(config_file_location)) {
 // ---------------
 // Add other libs to tools
 // ---------------
+tools.root_misc = require('../../libs/root_misc.js')(logger);
 tools.wss1_athena = {
 	broadcast: function () { }
 };
@@ -296,7 +308,7 @@ const elliptic = require('elliptic');
 const EC = elliptic.ec;
 const _ecdsaCurve = elliptic.curves['p256'];
 tools._ecdsa = new EC(_ecdsaCurve);
-tools.session_store = { clear: function () { } };
+tools.session_store = { clear: function () { }, _destroySessionByUuid: function () { } };
 tools.misc = require('../../libs/misc.js')(logger, tools);
 tools.ot_misc = require('../../libs/ot_misc.js')(logger, tools);
 tools.couch_lib = require('../../libs/couchdb.js')(logger, tools, ev.DB_CONNECTION_STRING);
@@ -308,7 +320,7 @@ tools.middleware = require('../../libs/middleware/middleware.js')(logger, ev, to
 tools.notifications = require('../../libs/notifications_lib.js')(logger, ev, tools);
 tools.ca_lib = require('../../libs/ca_lib.js')(logger, ev, tools);
 tools.proxy_lib = require('../../libs/proxy_lib.js')(logger, ev, tools);
-tools.config_file = tools.yaml.safeLoad(tools.fs.readFileSync(config_file_location, 'utf8'));
+tools.config_file = tools.yaml.load(tools.fs.readFileSync(config_file_location, 'utf8'));
 tools.notifications.create = () => { return true; };
 tools.user_preferences = require('../../libs/user_preferences_lib.js')(logger, ev, tools);
 tools.auth_scheme = require('../../libs/auth_scheme_lib.js')(logger, ev, tools);
@@ -316,7 +328,6 @@ tools.keys_lib = require('../../libs/keys_lib.js')(logger, ev, tools);
 tools.pillow = require('../../libs/pillow_talk.js')(logger, ev, tools, { db_name: ev.DB_COMPONENTS });
 tools.logging_apis_lib = require('../../libs/logging_apis_lib.js')(logger, ev, tools);
 tools.log_lib = require('../../libs/log_lib.js')(tools);
-tools.notification_apis_lib = require('../../libs/notification_apis_lib.js')(logger, ev, tools);
 tools.other_apis_lib = require('../../libs/other_apis_lib.js')(logger, ev, tools);
 tools.permissions_lib = require('../../libs/permissions_lib.js')(logger, ev, tools);
 tools.signature_collection_lib = require('../../libs/signature_collection_lib.js')(logger, ev, tools);

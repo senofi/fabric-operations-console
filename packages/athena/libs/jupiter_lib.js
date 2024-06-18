@@ -91,8 +91,10 @@ module.exports = function (logger, ev, t) {
 				headers: exports.copy_headers(opts.headers),
 				timeout: ev.DEPLOYER_TIMEOUT,
 			};
-			//options.headers['x-iam-token'] = ;
-			//options.headers['x-refresh-token'] = ;
+
+			// debug code
+			//return cb({ statusCode: 500 });
+			//return cb({ statusCode: 200, response: { url: 'http://localhost:3000' } });
 
 			t.request(options, (err, resp) => {
 				let response = resp ? resp.body : null;
@@ -113,12 +115,6 @@ module.exports = function (logger, ev, t) {
 					return cb({ statusCode: code, response: response });
 				}
 			});
-
-			// debug code
-			/*setTimeout(() => {
-				console.log('[simulation] sim jupiter response for req:', options);
-				return cb({ statusCode: 200, response: { url: 'http://localhost:3000' } });
-			}, 2000);*/
 		}
 
 		function strip_account_prefix(account_id) {
@@ -130,6 +126,21 @@ module.exports = function (logger, ev, t) {
 			}
 			return account_id;
 		}
+	};
+
+	//--------------------------------------------------
+	// Pass jupiter error along if present
+	//--------------------------------------------------
+	exports.make_jupiter_msg = (resp) => {
+		let jupiter_msg = '';
+		if (resp && resp.response && resp.response.message && typeof resp.response.message === 'string') {
+			jupiter_msg = '. Details - "' + resp.response.message + '"';
+		} else if (resp && resp.message && typeof resp.message === 'string') {
+			jupiter_msg = '. Details - "' + resp.message + '"';
+		} else if (resp && resp.response && typeof resp.response === 'string') {
+			jupiter_msg = '. Details - "' + resp.response + '"';
+		}
+		return jupiter_msg;
 	};
 
 	return exports;

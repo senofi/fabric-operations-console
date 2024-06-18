@@ -13,22 +13,23 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
 */
-import { Table16 } from '@carbon/icons-react/es';
-import { Button, DataTable } from 'carbon-components-react';
+import { Table as TableIcon } from '@carbon/icons-react';
+import { Checkbox, Button, DataTable } from "@carbon/react";
 import _ from 'lodash';
 import PropTypes from 'prop-types';
 import React, { Component } from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import plusIcon from '../../assets/images/plus.svg';
 import { updateState } from '../../redux/commonActions';
 import Helper from '../../utils/helper';
 import Hover from '../../utils/hover';
 import BlockchainPagination from '../BlockchainPagination/BlockchainPagination';
-import BlockchainTooltip from '../BlockchainTooltip/BlockchainTooltip';
+// import BlockchainTooltip from '../BlockchainTooltip/BlockchainTooltip';
 import ItemContainerTile from '../ItemContainerTile/ItemContainerTile';
 import ItemMenu from '../ItemMenu/ItemMenu';
 import SVGs from '../Svgs/Svgs';
+import IBPTooltip from '../BlockchainTooltip/IBPTooltip';
 
 const {
 	TableContainer,
@@ -114,21 +115,20 @@ class ItemContainer extends Component {
 		if (views.length < 2 || !this.props.items || !this.props.items.length) {
 			return (
 				<div>
-					<div className="ibp-title-bar-container">
-						{this.props.containerTitle && this.props.tileMapping && (
+					{this.props.containerTitle && this.props.tileMapping && (
+						<div className="ibp-title-bar-container">
 							<h3 className="ibp-title-bar-container-header">
 								{!this.props.containerTooltip ? (
 									translate(this.props.containerTitle)
 								) : (
-									<BlockchainTooltip triggerText={translate(this.props.containerTitle)}
+									<IBPTooltip prefixText={translate(this.props.containerTitle)}
+										tooltipText={translate(this.props.containerTooltip)}
 										direction={this.props.tooltipDirection}
-									>
-										{translate(this.props.containerTooltip)}
-									</BlockchainTooltip>
+									/>
 								)}
 							</h3>
-						)}
-					</div>
+						</div>
+					)}
 					{this.props.tileMapping && this.props.containerDesc && !this.props.containerDescLink && (
 						<div className="ibp-title-desc-container">
 							<p>{translate(this.props.containerDesc)}</p>
@@ -165,11 +165,10 @@ class ItemContainer extends Component {
 								{!this.props.containerTooltip ? (
 									translate(this.props.containerTitle)
 								) : (
-									<BlockchainTooltip triggerText={translate(this.props.containerTitle)}
+									<IBPTooltip prefixText={translate(this.props.containerTitle)}
+										tooltipText={translate(this.props.containerTooltip)}
 										direction={this.props.tooltipDirection}
-									>
-										{translate(this.props.containerTooltip)}
-									</BlockchainTooltip>
+									/>
 								)}
 							</h3>
 						)}
@@ -178,9 +177,10 @@ class ItemContainer extends Component {
 								<button
 									key={view}
 									id={`${this.props.id}-${view}-button`}
-									className={`ibp-container-button ${current === view ? 'ibp-active-view-mode' : 'ibp-inactive-view-mode'} ${
-										view === 'variableGrid' ? 'variableGridButton' : 'listViewButton'
-									}`}
+									className={
+										`ibp-container-button ${current === view ? 'ibp-active-view-mode' : 'ibp-inactive-view-mode'}
+										${view === 'variableGrid' ? 'variableGridButton' : 'listViewButton'}`
+									}
 									onClick={view === 'variableGrid' ? this.showGrid : this.showList}
 									aria-label={view === 'variableGrid' ? 'Toggle grid view' : 'Toggle list view'}
 								>
@@ -191,7 +191,7 @@ class ItemContainer extends Component {
 											title={'Toggle grid view'}
 										/>
 									) : (
-										<Table16 aria-label={'Toggle list view'}
+										<TableIcon size={16} aria-label={'Toggle list view'}
 											className="ibp--svg-white-fill"
 										/>
 									)}
@@ -200,7 +200,7 @@ class ItemContainer extends Component {
 						</div>
 					</div>
 					<div className="ibp-title-desc-container">{this.props.containerDesc && <p>{translate(this.props.containerDesc)}</p>}</div>
-				</div>
+				</div >
 			);
 		}
 	}
@@ -362,7 +362,7 @@ class ItemContainer extends Component {
 		if (table && this.props.emptyMessage) {
 			return (
 				<div className="ibp-empty-table-container">
-					<h4>{translate(this.props.emptyMessage, this.props.emptyTranslationOpts)}</h4>
+					{translate(this.props.emptyMessage, this.props.emptyTranslationOpts)}
 				</div>
 			);
 		}
@@ -380,7 +380,7 @@ class ItemContainer extends Component {
 		// to account for the checkbox, this allows the empty row to have the correct width
 		return (
 			<>
-				<div className="ibp__button--container">{this.buildButtons(translate)}</div>
+				{(this.props.addItems && this.props.addItems.length) ? <div className="ibp__button--container">{this.buildButtons(translate)}</div> : null}
 				<div className="ibp-container-grid-box"
 					role="grid"
 					aria-label={translate(this.props.containerTitle || 'grid_view')}
@@ -466,15 +466,14 @@ class ItemContainer extends Component {
 							onClick={button.fn}
 							kind={button.kind || (i !== this.props.addItems.length - 1 ? 'secondary' : 'primary')}
 							title={!button.tooltip ? (button.title ? translate(button.title) : translate(button.text)) : ''}
-							disabled={this.props.disableAddItem || this.props.loading}
+							disabled={button.decoupleFromLoading ? (this.props.disableAddItem || button.disabled) :
+								(this.props.disableAddItem || this.props.loading || button.disabled)}
 						>
-							{!button.tooltip && <span className="ibp__button-text bx--type-zeta">{translate(button.text)}</span>}
+							{!button.tooltip && <span className="ibp__button-text cds--type-zeta">{translate(button.text)}</span>}
 							{button.tooltip && (
-								<BlockchainTooltip noIcon
-									triggerText={<span className="ibp__button-text bx--type-zeta">{translate(button.text)}</span>}
-								>
-									{translate(button.tooltip)}
-								</BlockchainTooltip>
+								<IBPTooltip prefixText={<span className="ibp__button-text cds--type-zeta">{translate(button.text)}</span>}
+									tooltipText={translate(button.tooltip)}
+								/>
 							)}
 							<SVGs extendClass={{ 'ibp-container-list-add-button-img': true }}
 								type={button.icon || 'plus'}
@@ -493,7 +492,7 @@ class ItemContainer extends Component {
 			items.forEach(row => {
 				if (
 					selectedRows.find(selectedRow => {
-						return selectedRow.id === row.id;
+						return selectedRow.id === row.id && !row.disabled;	// do not mass select disabled rows
 					})
 				) {
 					selectedRowsWithDetails.push(row);
@@ -597,7 +596,7 @@ class ItemContainer extends Component {
 				return <TableCell />;
 			}
 			return (
-				<TableCell>
+				<TableCell className='action-td'>
 					<ItemMenu menuItems={this.props.menuItems(row)}
 						loading={row.loading}
 					/>
@@ -642,7 +641,7 @@ class ItemContainer extends Component {
 	}
 
 	initializeSearch() {
-		const { items, listMapping, translate } = this.props;
+		const { items, listMapping, t: translate } = this.props;
 		const searchSettings = [];
 		if (listMapping) {
 			const lang = document.documentElement.getAttribute('lang');
@@ -679,6 +678,16 @@ class ItemContainer extends Component {
 
 	handleSearch = event => {
 		let { searchSettings } = this.props;
+
+		// use the custom search instead, reset page to 0 though
+		if (this.props.customSearch && typeof this.props.customSearch === 'function') {
+			this.updateState({
+				page: 0
+			});
+			return this.props.customSearch(event.target.value);
+		}
+
+
 		if (!searchSettings) {
 			searchSettings = this.initializeSearch();
 		}
@@ -760,13 +769,14 @@ class ItemContainer extends Component {
 			headers.push({
 				key: 'actions',
 				header: '',
-				width: '5%',
+				width: '6%',
 			});
 		}
 		renderedItems.forEach(item => {
 			rows.push({ id: '' + (item.id || item.name) });
 		});
 		const ariaTitle = this.props.containerTitle ? translate(this.props.containerTitle) : this.props.itemId ? this.props.itemId : '';
+		const multiSelect = this.props.selectItem && this.props.selectItem.multiSelect;
 		return (
 			<div className={`ibp-container-list ${!items.length ? 'ibp-container-empty-list' : ''}`}>
 				<DataTable
@@ -774,7 +784,18 @@ class ItemContainer extends Component {
 					rows={rows}
 					render={({ rows, headers, getHeaderProps, getSelectionProps, selectedRows }) => (
 						<TableContainer id={this.props.id}>
-							{this.props.containerTitle && !this.props.tileMapping && <h3 className="ibp-container-title">{translate(this.props.containerTitle)}</h3>}
+							{this.props.containerTitle && !this.props.tileMapping &&
+								<h3 className="ibp-container-title">
+									{!this.props.containerTooltip ? (
+										translate(this.props.containerTitle)
+									) : (
+										<IBPTooltip prefixText={translate(this.props.containerTitle)}
+											tooltipText={translate(this.props.containerTooltip)}
+											direction={this.props.tooltipDirection}
+										/>
+									)}
+								</h3>
+							}
 							{this.props.containerDesc && !this.props.containerDescLink && !this.props.tileMapping && (
 								<div className="ibp-title-desc-container">
 									<p>{translate(this.props.containerDesc)}</p>
@@ -796,9 +817,10 @@ class ItemContainer extends Component {
 								<div className="ibp__button--container">
 									{searchEnabled && (
 										<TableToolbarSearch
+											className='searchBox'
 											onChange={event => this.handleSearch(event)}
 											labelText={translate(`find_${this.props.itemId}`)}
-											placeHolderText={translate(`find_${this.props.itemId}`)}
+											persistent={true}
 										/>
 									)}
 									<div className="ibp__button--container">
@@ -840,7 +862,20 @@ class ItemContainer extends Component {
 												}
 											}}
 										>
-											{this.props.selectItem && (
+											{row.disabled && multiSelect && (
+												<TableCell
+													key={(row.id || row.name) + '_' + i}
+													id={`${this.props.id}-${i}`}
+												>
+													<Checkbox
+														id={`${this.props.id}-${i}-disabled`}
+														checked={false}
+														disabled={true}
+														labelText=''
+													/>
+												</TableCell>
+											)}
+											{!row.disabled && multiSelect && (
 												<TableSelectRow
 													disabled={
 														row.disabled ||
@@ -906,7 +941,7 @@ class ItemContainer extends Component {
 	}
 
 	render() {
-		const { translate } = this.props;
+		const { t: translate } = this.props;
 		return (
 			<div className="ibp-item-container">
 				{this.buildHeader(translate)}
@@ -920,7 +955,7 @@ const dataProps = {
 	page: PropTypes.number,
 	view: PropTypes.string,
 	searchAttributes: PropTypes.array,
-	searchSettings: PropTypes.object,
+	searchSettings: PropTypes.array,
 	searchQuery: PropTypes.string,
 	searchResults: PropTypes.array,
 };
@@ -957,7 +992,8 @@ ItemContainer.propTypes = {
 	onPage: PropTypes.func,
 	widerTiles: PropTypes.bool,
 	maxTilesPerPagination: PropTypes.number,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
+	customSearch: PropTypes.func,
 };
 
 export default connect(
@@ -969,4 +1005,4 @@ export default connect(
 	{
 		updateState,
 	}
-)(withLocalize(ItemContainer));
+)(withTranslation()(ItemContainer));

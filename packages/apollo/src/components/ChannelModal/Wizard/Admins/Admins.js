@@ -14,12 +14,12 @@
  * limitations under the License.
 */
 
-import TrashCan20 from '@carbon/icons-react/lib/trash-can/20';
-import { Button } from 'carbon-components-react';
+import { TrashCan } from '@carbon/icons-react';
+import { Button } from "@carbon/react";
 import _ from 'lodash';
 import PropTypes from 'prop-types';
 import React, { Component } from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import { updateState } from '../../../../redux/commonActions';
 import Helper from '../../../../utils/helper';
@@ -80,7 +80,7 @@ class Admins extends Component {
 	}
 
 	render() {
-		const { availableAdmins, invalid_consenter, orderer_orgs, isAdminsModified, selectedAdmin, translate, use_osnadmin } = this.props;
+		const { availableAdmins, invalid_consenter, orderer_orgs, isAdminsModified, selectedAdmin, t: translate, use_osnadmin } = this.props;
 		let options = [];
 		if (availableAdmins) {
 			availableAdmins.forEach(admin => {
@@ -162,7 +162,7 @@ class Admins extends Component {
 								className="ibp-add-channel-table"
 							>
 								<div className="ibp-add-admin-table-name">
-									<input className="bx--text-input"
+									<input className="cds--text-input"
 										value={admin.display_name}
 										disabled={true}
 										aria-label={translate('name') + ' ' + admin.display_name}
@@ -171,14 +171,14 @@ class Admins extends Component {
 								<Button
 									hasIconOnly
 									type="button"
-									renderIcon={TrashCan20}
+									renderIcon={() => <TrashCan size={20} />}
 									kind="secondary"
 									id={'ibp-remove-admin-' + i}
 									iconDescription={translate('remove_orderer_admin')}
 									tooltipAlignment="center"
 									tooltipPosition="bottom"
 									className="ibp-admins-remove"
-									size="default"
+									size="lg"
 									onClick={() => {
 										this.onDeleteAdmin(i);
 									}}
@@ -220,7 +220,7 @@ Admins.propTypes = {
 	...dataProps,
 	updateState: PropTypes.func,
 	isAdminsModified: PropTypes.bool,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default connect(
@@ -230,4 +230,4 @@ export default connect(
 	{
 		updateState,
 	}
-)(withLocalize(Admins));
+)(withTranslation()(Admins));

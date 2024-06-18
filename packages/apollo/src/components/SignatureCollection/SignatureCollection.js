@@ -13,10 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
 */
-import { Dropdown } from 'carbon-components-react';
+import { Dropdown } from "@carbon/react";
 import PropTypes from 'prop-types';
 import React, { Component } from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import { bindActionCreators } from 'redux';
 import NotificationEmptyImage from '../../assets/images/notification_empty.svg';
@@ -110,7 +110,7 @@ class SignatureCollection extends Component {
 	getReceivedBy(request) {
 		let received = null;
 		request.orgs2sign.forEach(entry => {
-			if (entry.optools_url === this.props.host_url + '/api/v1') {
+			if (Helper.urlsAreEqual(entry.optools_url, this.props.host_url)) {
 				if (!received || (received.signature && !entry.signature)) {
 					received = entry;
 				}
@@ -119,7 +119,7 @@ class SignatureCollection extends Component {
 		if (!received && request.orderers2sign) {
 			// When only orderer needs to sign
 			request.orderers2sign.forEach(entry => {
-				if (entry.optools_url === this.props.host_url + '/api/v1') {
+				if (Helper.urlsAreEqual(entry.optools_url, this.props.host_url)) {
 					if (!received || (received.signature && !entry.signature)) {
 						received = entry;
 					}
@@ -286,7 +286,7 @@ class SignatureCollection extends Component {
 
 	renderRequest(request) {
 		const originator = this.getOriginatorSignature(request);
-		const submitter = originator ? originator.optools_url === this.props.host_url + '/api/v1' : false;
+		const submitter = originator ? Helper.urlsAreEqual(originator.optools_url, this.props.host_url) : false;
 		const received_by = this.getReceivedBy(request);
 		const required = request.current_policy.number_of_signatures || request.orgs2sign.length;
 		const approved = request.signature_count >= required && (request.orderers2sign ? request.orderer_signature_count >= request.orderers2sign.length : true);
@@ -465,7 +465,7 @@ class SignatureCollection extends Component {
 		}
 		const shouldArchive = this.props.sc_filter && this.props.sc_filter.id !== 'archived' ? true : false;
 		const { showArchiveConfirmation } = this.props;
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		return (
 			<div>
 				<SidePanel
@@ -513,10 +513,10 @@ class SignatureCollection extends Component {
 										? this.props.recentArchiveData.visibility === 'archive'
 											? translate('archive_notification_confirmation_title_archive_plural', {
 												count: this.props.recentArchiveData.notificationCount,
-											  })
+											})
 											: translate('archive_notification_confirmation_title_inbox_plural', {
 												count: this.props.recentArchiveData.notificationCount,
-											  })
+											})
 										: this.props.recentArchiveData.visibility === 'inbox'
 											? translate('archive_notification_confirmation_title_inbox_single')
 											: translate('archive_notification_confirmation_title_archive_single')
@@ -558,7 +558,7 @@ const dataProps = {
 
 SignatureCollection.propTypes = {
 	...dataProps,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default connect(
@@ -573,4 +573,4 @@ export default connect(
 			...bindActionCreators({ showError, updateState }, dispatch),
 		};
 	}
-)(withLocalize(SignatureCollection));
+)(withTranslation()(SignatureCollection));

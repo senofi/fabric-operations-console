@@ -13,11 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
 */
-import { Dropdown } from 'carbon-components-react';
-import DropdownSkeleton from 'carbon-components-react/lib/components/Dropdown/Dropdown.Skeleton';
+import { Dropdown, DropdownSkeleton } from "@carbon/react";
 import PropTypes from 'prop-types';
 import React from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import { showError, updateState } from '../../redux/commonActions';
 import { MspRestApi } from '../../rest/MspRestApi';
@@ -95,7 +94,7 @@ class ImportMspModal extends React.Component {
 		this.props.updateState(SCOPE, { submitting: true });
 		const selected_msp = this.props.selected_msp;
 		const mspPayload = {
-			ordererId: this.props.ordererId,
+			cluster_id: this.props.clusterId,
 			configtxlator_url: this.props.configtxlator_url,
 			type: this.props.ordererAdmin ? 'ordererAdmin' : 'ordererMember',
 			operation: 'add',
@@ -211,7 +210,7 @@ class ImportMspModal extends React.Component {
 	}
 
 	render() {
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		return (
 			<SidePanel
 				id="add-users"
@@ -260,7 +259,7 @@ const dataProps = {
 	duplicateMSPId: PropTypes.string,
 	msps: PropTypes.array,
 	selected_msp: PropTypes.object,
-	error: PropTypes.string,
+	error: PropTypes.object,
 	members: PropTypes.array,
 	admins: PropTypes.array,
 };
@@ -271,7 +270,7 @@ ImportMspModal.propTypes = {
 	onClose: PropTypes.func,
 	updateState: PropTypes.func,
 	showError: PropTypes.func,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default connect(
@@ -282,4 +281,4 @@ export default connect(
 		showError,
 		updateState,
 	}
-)(withLocalize(ImportMspModal));
+)(withTranslation()(ImportMspModal));

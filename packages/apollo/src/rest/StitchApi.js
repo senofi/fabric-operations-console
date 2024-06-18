@@ -91,6 +91,12 @@ class StitchApi {
 		return authHeader;
 	}
 
+	/*
+	opts = {
+		// tbd
+	}
+	orderers = [orderer data] - this is now optional 2023/05/18 - if found will retry request with the next orderer in array
+	*/
 	static async submitWithRetry(opts, orderers) {
 		const submitConfigUpdate = promisify(window.stitch.submitConfigUpdate);
 		let opts_copy = _.cloneDeep(opts);
@@ -98,16 +104,27 @@ class StitchApi {
 			let resp = await submitConfigUpdate(opts);
 			return resp;
 		} catch (error) {
-			Log.error('submitWithRetry error', error);
+			Log.error('error submitting channel config, error:', error);
 			if (_.includes(error.stitch_msg, 'no Raft leader')) {
 				throw Error('no Raft leader');
 			}
-			const orderer = orderers.pop();
-			if (orderer && orderer.url2use) {
-				opts_copy.orderer_host = orderer.url2use;
-				return StitchApi.submitWithRetry(opts_copy, orderers);
-			} else {
+
+			// only retry if we have other orderers to use
+			if (!orderers) {
+				Log.error('there are no other orderers to try');
 				throw error;
+			} else if (orderers.length === 0) {
+				Log.error('have tried this request with all orderers');
+				throw error;
+			} else {
+				const orderer = orderers.pop();
+				if (orderer && orderer.url2use) {
+					Log.debug('will retry tx with another orderer', orderer);
+					opts_copy.orderer_host = orderer.url2use;
+					return StitchApi.submitWithRetry(opts_copy, orderers);
+				} else {
+					throw error;
+				}
 			}
 		}
 	}
@@ -420,6 +437,70 @@ class StitchApi {
 			}
 
 			return null;
+		}
+	}
+
+	// ---------------------------
+	// Retry errors on any stitch function but use a new orderer each time
+	// ---------------------------
+	// - if the last orderer fails by throwing an error, throw that error out
+	// - if te last orderer fails with an error response, return error response
+	/*
+	opts = {
+		orderer_urls: ["orderer-url-1", "orderer-url-2"],			// array of orderers to try, they are tried in order
+		stitchFunction: <function>,									// stitch function to call
+		stitchArgument: {},											// input argument to pass to the function
+		logName: 'someFunctionName',								// [optional] name of the function, only used for better logs
+	}
+	*/
+	static async retryOrdererGeneric(opts) {
+		if (typeof opts.stitchFunction !== 'function') {
+			const msg = '[orderer-retry] unexpected usage, stitchFunction is not a function';
+			Log.error(msg);
+			throw new Error(msg);
+		}
+		if (!opts.orderer_urls || !Array.isArray(opts.orderer_urls) || opts.orderer_urls.length === 0) {
+			const msg = '[orderer-retry] unexpected usage, orderer_urls is not an array of urls';
+			Log.error(msg);
+			throw new Error(msg);
+		}
+		let logName = opts.logName || '-';
+		let final_error = null;
+		let throw_error = false;
+
+		for (let i in opts.orderer_urls) {
+			const thisCallsArgs = JSON.parse(JSON.stringify(opts.stitchArgument));	// deep copy
+			thisCallsArgs.orderer_host = opts.orderer_urls[i];						// use this orderer now
+			const id = Number(i) + 1;
+			const tag = id + '/' + opts.orderer_urls.length;
+			Log.debug(`[orderer-retry] trying ${logName} ${tag} with orderer: ${thisCallsArgs.orderer_host}`);
+			try {
+				const stitch_promise = promisify(opts.stitchFunction);
+				const resp = await stitch_promise(thisCallsArgs);
+
+				// if there are no errors, return, else stay in the loop
+				if (resp && resp.error === false) {
+					return resp;
+				} else {
+					Log.error(resp);
+					Log.error(`[orderer-retry] ${logName} ${tag} failed {error response}, trying it with another orderer.`);
+					final_error = resp;
+					throw_error = false;
+				}
+			} catch (error) {
+				Log.error(error);
+				Log.error(`[orderer-retry] ${logName} ${tag} failed {caught error}, trying it with another orderer.`);
+				final_error = error;
+				throw_error = true;
+			}
+		}
+
+		// no calls succeeded, give up
+		Log.error(`[orderer-retry] all ${opts.orderer_urls.length} retries of ${logName} failed. throwing error.`);
+		if (throw_error) {
+			throw final_error;
+		} else {
+			return final_error;
 		}
 	}
 }

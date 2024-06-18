@@ -12,13 +12,13 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
-*/
+ */
 
-import { Button, CodeSnippet, SkeletonText, Tab, Tabs } from 'carbon-components-react';
+import { Button, CodeSnippet, Row, SkeletonText, Tab, TabList, TabPanel, TabPanels, Tabs } from "@carbon/react";
 import _ from 'lodash';
 import PropTypes from 'prop-types';
 import React, { Component } from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation, Trans } from 'react-i18next';
 import { connect } from 'react-redux';
 import { promisify } from 'util';
 import RequiresAttentionImage from '../../assets/images/requires_attention.svg';
@@ -26,7 +26,6 @@ import RequiresAttentionImage2 from '../../assets/images/requires_attention_2.sv
 import { clearNotifications, showBreadcrumb, showError, showSuccess, showWarning, updateBreadcrumb, updateState } from '../../redux/commonActions';
 import ChannelApi from '../../rest/ChannelApi';
 import { ChannelParticipationApi } from '../../rest/ChannelParticipationApi';
-import ComponentApi from '../../rest/ComponentApi';
 import IdentityApi from '../../rest/IdentityApi';
 import { MspRestApi } from '../../rest/MspRestApi';
 import { NodeRestApi } from '../../rest/NodeRestApi';
@@ -57,6 +56,8 @@ import StickySection from '../StickySection/StickySection';
 import SVGs from '../Svgs/Svgs';
 import TranslateLink from '../TranslateLink/TranslateLink';
 import ChannelParticipationDetails from './ChannelParticipationDetails';
+import withRouter from '../../hoc/withRouter';
+import RenderParamHTML from '../RenderHTML/RenderParamHTML';
 
 const SCOPE = 'ordererDetails';
 const Log = new Logger(SCOPE);
@@ -131,21 +132,27 @@ class OrdererDetails extends Component {
 		const ordererDetails = await this.getDetails(skipStatusCache);
 		if (this.channelParticipationEnabled(ordererDetails)) {
 			await this.getCPChannelList();
-		};
+		}
 		this.props.updateState(SCOPE, {
 			loading: false,
 			channelsLoading: false,
 		});
-	};
+	}
 
-	// detect if channel participation features are enabled (this doesn't mean they should be shown!)
+	// detect if channel participation features are enabled (they may or may not have a system channel still!!)
+	// (note: don't add the tls identity check to this function)
 	channelParticipationEnabled(obj) {
 		const has_osnadmin_url = (obj && typeof obj.osnadmin_url === 'string') ? true : false;
 		const osnadmin_feats_enabled = this.props.feature_flags && this.props.feature_flags.osnadmin_feats_enabled === true;
-		return osnadmin_feats_enabled && has_osnadmin_url;
+
+		// if we don't have the version... (b/c imported) just set this to true to skip this part
+		const valid_version = (obj && obj.version) ? semver.gte(semver.coerce(obj.version), semver.coerce('2.4')) : true;
+
+		return osnadmin_feats_enabled && has_osnadmin_url && valid_version;
 	}
 
-	// detect if channel participation features should be shown, based on osnadmin_url availability and a feature flag && system channel should not exist
+	// detect if channel tiles should be populated on the page by USING the channel participation feature
+	// based on osnadmin_url availability and a feature flag && the system channel should not exist
 	isSystemLess(obj) {
 		return this.channelParticipationEnabled(obj) && !this.props.systemChannel;
 	}
@@ -178,15 +185,19 @@ class OrdererDetails extends Component {
 
 				if (resp) {
 					channelList = resp;
-					if (_.get(channelList, 'systemChannel.name')) {					// system channel does exist
+					if (_.get(channelList, 'systemChannel.name')) {
+
+						// system channel does exist
 						systemChannel = true;
 						channelList.systemChannel.type = 'system_channel';
 						if (channelList.channels === null) {
 							channelList.channels = [];
 						}
 						channelList.channels.push(channelList.systemChannel);
-						await this.getSystemChannelConfig();
-					} else {														// system channel does not exist
+						await this.getSystemChannelConfigData();
+					} else {
+
+						// system channel does not exist
 						systemChannel = false;
 					}
 				}
@@ -212,7 +223,7 @@ class OrdererDetails extends Component {
 	};
 
 	async getDetails(skipStatusCache) {
-		let orderer = await OrdererRestApi.getOrdererDetails(this.props.match.params.ordererId, false);
+		let orderer = await NodeRestApi.getClusterDetails(this.props.match.params.clusterIdPath, false);
 		try {
 			// Get complete config from deployer because the value stored in database stores only the latest config override json
 			const latest_config = await NodeRestApi.getCurrentNodeConfig(orderer);
@@ -237,7 +248,7 @@ class OrdererDetails extends Component {
 
 		if (orderer.raft) {
 			orderer.raft.forEach(node => {
-				ComponentApi.getUsageInformation(node)
+				NodeRestApi.getCompsResources(node)
 					.then(nodeUsageInfo => {
 						const usageInfo = this.props.usageInfo;
 						usageInfo[node.id] = nodeUsageInfo;
@@ -250,7 +261,7 @@ class OrdererDetails extends Component {
 		}
 		if (orderer.pending) {
 			orderer.pending.forEach(node => {
-				ComponentApi.getUsageInformation(node)
+				NodeRestApi.getCompsResources(node)
 					.then(nodeUsageInfo => {
 						const usageInfo = this.props.usageInfo;
 						usageInfo[node.id] = nodeUsageInfo;
@@ -270,7 +281,7 @@ class OrdererDetails extends Component {
 				}
 			});
 			if (!nodeToOpen && orderer.pending) {
-				orderer.forEach(node => {
+				orderer.pending.forEach(node => {
 					if (node.id === this.props.match.params.nodeId) {
 						nodeToOpen = node;
 					}
@@ -300,7 +311,7 @@ class OrdererDetails extends Component {
 					this.timestamp = 0;
 					this.props.updateState(SCOPE, { notAvailable: false });
 					if (!this.isSystemLess(this.props.details)) {
-						this.getSystemChannelConfig();
+						this.getSystemChannelConfigData();
 					}
 				}
 			}
@@ -397,8 +408,8 @@ class OrdererDetails extends Component {
 		};
 	}
 
-	getSystemChannelConfig() {
-		OrdererRestApi.getSystemChannelConfig(this.props.match.params.ordererId, this.props.configtxlator_url)
+	getSystemChannelConfigData() {
+		OrdererRestApi.getSystemChannelConfig({ cluster_id: this.props.match.params.clusterIdPath }, this.props.configtxlator_url)
 			.then(resp => {
 				// we usually pick "SampleConsortium" but if that is missing, grab the first one. we don't support multiple atm.
 				const first_consortium = ChannelUtils.getSampleConsortiumOrFirstKey(resp.channel_group.groups.Consortiums.groups);
@@ -451,7 +462,7 @@ class OrdererDetails extends Component {
 					this.props.showError(error.message_key, { nodeName: error.nodeName }, SCOPE);
 				} else {
 					if (this.props.details.associatedIdentity) {
-						this.props.showError('system_channel_error', { ordererId: this.props.match.params.ordererId }, SCOPE);
+						this.props.showError('system_channel_error', { ordererId: this.props.match.params.clusterIdPath }, SCOPE);
 					} else {
 						this.props.showError('orderer_not_available_title', {}, SCOPE);
 					}
@@ -475,11 +486,11 @@ class OrdererDetails extends Component {
 	};
 
 	buildCustomTile(msp) {
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		return (
 			<div>
-				<p className="bx--type-zeta ibp-node-orderer-tile-name">{msp.msp}</p>
-				<p className="bx--type-zeta ibp-node-orderer-tile-name">{translate('org')}</p>
+				<p className="cds--type-zeta ibp-node-orderer-tile-name">{msp.msp}</p>
+				<p className="cds--type-zeta ibp-node-orderer-tile-name">{translate('org')}</p>
 			</div>
 		);
 	}
@@ -582,7 +593,11 @@ class OrdererDetails extends Component {
 	};
 
 	renderNodeVersion(translate) {
-		if (!this.props.selectedNode || this.props.selectedNode.location !== 'ibm_saas' || !ActionsHelper.canCreateComponent(this.props.userInfo)) {
+		if (
+			!this.props.selectedNode ||
+			this.props.selectedNode.location !== 'ibm_saas' ||
+			!ActionsHelper.canCreateComponent(this.props.userInfo, this.props.feature_flags)
+		) {
 			return;
 		}
 		// Do not show HSM for now
@@ -713,6 +728,7 @@ class OrdererDetails extends Component {
 							{
 								text: 'reallocate_resources',
 								fn: this.showUsageModal,
+								disabled: !ActionsHelper.canCreateComponent(this.props.userInfo, this.props.feature_flags),
 							},
 						]}
 					/>
@@ -722,7 +738,11 @@ class OrdererDetails extends Component {
 	}
 
 	buildNodeTile(node) {
-		const isPatchAvailable = !node.pending && node.isUpgradeAvailable && node.location === 'ibm_saas' && ActionsHelper.canCreateComponent(this.props.userInfo);
+		const isPatchAvailable =
+			!node.pending &&
+			node.isUpgradeAvailable &&
+			node.location === 'ibm_saas' &&
+			ActionsHelper.canCreateComponent(this.props.userInfo, this.props.feature_flags);
 		const associatedMSP = node.msp_id;
 		const tls_root_certs = _.get(node, 'msp.tlsca.root_certs') || [];
 		const ecert = _.get(node, 'msp.component.ecert');
@@ -769,7 +789,7 @@ class OrdererDetails extends Component {
 		if (!node.operations_url) {
 			className = 'ibp-node-status-unretrievable';
 		}
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		return status ? (
 			<div className="ibp-node-status-container">
 				<span className={`ibp-node-status ${className}`}
@@ -855,8 +875,7 @@ class OrdererDetails extends Component {
 					</div>
 					{this.props.error && <SidePanelError error={this.props.error} />}
 				</div>
-				<RequiresAttentionImage2
-					className="ibp-requires-attention-image"
+				<RequiresAttentionImage2 className="ibp-requires-attention-image"
 					alt=""
 				/>
 			</div>
@@ -876,8 +895,7 @@ class OrdererDetails extends Component {
 					<h3>{translate('running_partial')}</h3>
 					<p>{translate('running_partial_desc')}</p>
 				</div>
-				<RequiresAttentionImage
-					className="ibp-requires-attention-image"
+				<RequiresAttentionImage className="ibp-requires-attention-image"
 					alt=""
 				/>
 			</div>
@@ -895,10 +913,9 @@ class OrdererDetails extends Component {
 			<div className="missing-endorsement-policy">
 				<div>
 					<h3>{translate('missing_endorsement_policy_title')}</h3>
-					<p>{translate('missing_endorsement_policy_desc', { orgs: this.props.missingEndorsementOrgs.join(',') })}</p>
+					<p><Trans>{translate('missing_endorsement_policy_desc', { orgs: this.props.missingEndorsementOrgs.join(',') })}</Trans></p>
 				</div>
-				<RequiresAttentionImage
-					className="ibp-requires-attention-image ibp-requires-attention-small-image"
+				<RequiresAttentionImage className="ibp-requires-attention-image ibp-requires-attention-small-image"
 					alt=""
 				/>
 			</div>
@@ -925,7 +942,7 @@ class OrdererDetails extends Component {
 			<div className="pending-node-notice">
 				<div>
 					<h3>{translate('node_requires_attention')}</h3>
-					<p>{translate('node_requires_attention_desc', data)}</p>
+					<p>{RenderParamHTML(translate, 'node_requires_attention_desc', data)}</p>
 					<div>
 						<Button
 							id="go-to-node-button"
@@ -942,8 +959,7 @@ class OrdererDetails extends Component {
 						</Button>
 					</div>
 				</div>
-				<RequiresAttentionImage
-					className="ibp-requires-attention-image"
+				<RequiresAttentionImage className="ibp-requires-attention-image"
 					alt=""
 				/>
 			</div>
@@ -956,16 +972,15 @@ class OrdererDetails extends Component {
 			error: null,
 		});
 		const options = {
-			currentOrdererId: this.props.details.raft[0].id,
 			ordererId: this.props.selectedNode.id,
+			cluster_id: this.props.selectedNode.cluster_id,
 			configtxlator_url: this.props.configtxlator_url,
 		};
 		try {
-			Log.info(`Adding orderer ${options.ordererId} to system channel via orderer ${options.currentOrdererId}`);
+			Log.info(`Adding orderer ${options.ordererId} to system channel`);
 			await OrdererRestApi.addOrdererNodeToSystemChannel(options);
 		} catch (error) {
 			let duplicate_consenter = false;
-			Log.error(`Could not add order ${options.ordererId} to system channel: ${error}`);
 			let title = 'error_add_to_system_channel';
 			let details = error && error.message ? error.message : error;
 			if (_.has(error, 'stitch_msg') && _.includes(error.stitch_msg, 'no Raft leader')) {
@@ -974,13 +989,16 @@ class OrdererDetails extends Component {
 			}
 			if (_.has(error, 'stitch_msg') && _.includes(error.stitch_msg, 'permission denied')) {
 				title = 'add_node_error';
-				details = this.props.translate('add_node_system_channel_access_denied');
+				details = this.props.t('add_node_system_channel_access_denied');
 			}
 			if (_.has(error, 'stitch_msg') && _.includes(error.stitch_msg, 'duplicate consenter')) {
 				duplicate_consenter = true;
+				Log.warn('orderer was already added as a consenter, ignore errors');
 			}
-			// duplicate consenter is okay... it has been added, ignore
+
+			// duplicate consenter is okay... orderer was already, ignore error and continue
 			if (!duplicate_consenter) {
+				Log.error(`could not add orderer "${options.ordererId}" to system channel:`, error);
 				this.props.updateState(SCOPE, {
 					addToSystemChannelInProgress: false,
 					error: {
@@ -994,23 +1012,39 @@ class OrdererDetails extends Component {
 
 		let orderer;
 		try {
-			orderer = await OrdererRestApi.getOrdererDetails(options.currentOrdererId, false);
+			Log.debug('getting orderer cluster details', options.cluster_id);
+			orderer = await OrdererRestApi.getClusterDetails(options.cluster_id, true);
 		} catch (error) {
-			Log.error(`Unable to get orderer ${options.currentOrdererId}:`, error);
+			Log.error(`could not add orderer "${options.ordererId}" to system channel. unable to get orderer cluster data: ${options.cluster_id}:`, error);
 			return;
 		}
 
 		try {
+			Log.debug('getting current config block to give to the new orderer');
 			let block_options = {
-				ordererId: options.currentOrdererId,
+				cluster_id: options.cluster_id,
 				channelId: orderer.system_channel || OrdererRestApi.systemChannel,
 				configtxlator_url: options.configtxlator_url,
 			};
-			const block = await OrdererRestApi.getChannelConfigBlock(block_options);
-
+			const block = await OrdererRestApi.getChannelConfigBlock(block_options, orderer);
+			Log.debug('got block to bootstrap new orderer', options.ordererId);
 			const b64_config_block = window.stitch.uint8ArrayToBase64(block);
 			await OrdererRestApi.uploadConfigBlock(options.ordererId, b64_config_block);
+			Log.debug('block sent to bootstrap new orderer', options.ordererId);
+		} catch (error) {
+			Log.error(`could not add orderer "${options.ordererId}" to system channel. could not send config block:`, error);
+			this.props.updateState(SCOPE, {
+				addToSystemChannelInProgress: false,
+				error: {
+					title: 'error_add_to_system_channel',
+					details: 'communication error - unable to send block to orderer',
+				},
+			});
+			return;
+		}
 
+		try {
+			Log.debug('finishing add consenter flow, editing node data');
 			const update = {
 				id: this.props.selectedNode.id,
 				type: 'fabric-orderer',
@@ -1018,6 +1052,7 @@ class OrdererDetails extends Component {
 				pending: undefined,
 			};
 			await OrdererRestApi.updateOrderer(update);
+			Log.debug('recorded that the new orderer has completed the append-consenter flow', options.ordererId);
 
 			this.props.updateState(SCOPE, {
 				addToSystemChannelInProgress: false,
@@ -1025,7 +1060,7 @@ class OrdererDetails extends Component {
 			this.refresh(true);
 			this.props.showSuccess('add_to_system_channel_successful', {}, SCOPE);
 		} catch (error) {
-			Log.error('Could not add to system channel:', error);
+			Log.error('could not record that the orderer completed the append-consenter flow:', error);
 			this.props.updateState(SCOPE, {
 				addToSystemChannelInProgress: false,
 				error: {
@@ -1033,40 +1068,37 @@ class OrdererDetails extends Component {
 					details: error,
 				},
 			});
+			return;
 		}
 	}
 
 	getQuickActions = () => {
-		let quickAction = null;
-		const pathname = _.get(this.props, 'history.location.pathname');
-		if (pathname && pathname.indexOf('/debug/') !== -1) {
-			quickAction = [
-				{
-					label: 'open_channel_config',
-					quickAction: this.debug_openChannelConfig,
-				},
-			];
-		}
+		let quickAction = [
+			{
+				label: 'open_channel_config',
+				quickAction: this.debug_openChannelConfig,
+			},
+		];
 		return quickAction;
 	};
 
-	async getChannelConfig(channelId) {
+	async getChannelConfigWrap(channelId, orderer) {
 		const options = {
-			ordererId: this.props.match.params.ordererId,
+			cluster_id: this.props.details.cluster_id,
 			configtxlator_url: this.props.configtxlator_url,
 			channelId: channelId,
 		};
-		let block = await OrdererRestApi.getChannelConfigBlock(options);
+		let block = await OrdererRestApi.getChannelConfigBlock(options, orderer);
 		const _block_binary2json = promisify(ChannelApi._block_binary2json);
 		const resp = await _block_binary2json(block, options.configtxlator_url);
 		return resp.data.data[0].payload.data;
-	};
+	}
 
 	debug_openChannelConfig = () => {
-		OrdererRestApi.getOrdererDetails(this.props.match.params.ordererId, false)
+		OrdererRestApi.getClusterDetails(this.props.details.cluster_id, true)
 			.then(orderer => {
 				let channelId = this.props.match.params.channelId || orderer.system_channel || OrdererRestApi.systemChannel;
-				this.getChannelConfig(channelId).then(debug_block => {
+				this.getChannelConfigWrap(channelId, orderer).then(debug_block => {
 					Helper.openJSONBlob(debug_block);
 				});
 			})
@@ -1102,7 +1134,7 @@ class OrdererDetails extends Component {
 				label: 'node_location',
 				value: this.props.selectedNode.location ? translate(this.props.selectedNode.location) : '',
 			});
-			let versionLabel = this.props.selectedNode.version ? this.props.selectedNode.version : translate('version_not_found');
+			let versionLabel = this.props.selectedNode.version ? Helper.prettyPrintVersion(this.props.selectedNode.version) : translate('version_not_found');
 			if (this.props.selectedNode && this.props.selectedNode.isUnsupported) {
 				versionLabel = translate('unsupported');
 			}
@@ -1197,6 +1229,7 @@ class OrdererDetails extends Component {
 									fn: () => {
 										this.openDeleteConsenterModal(member);
 									},
+									disabled: !ActionsHelper.canManageComponent(this.props.userInfo, this.props.feature_flags),
 								},
 							];
 						}
@@ -1209,6 +1242,7 @@ class OrdererDetails extends Component {
 								fn: () => {
 									this.openUpdateConsenterModal(member);
 								},
+								disabled: !ActionsHelper.canManageComponent(this.props.userInfo, this.props.feature_flags),
 							});
 						}
 						return items;
@@ -1257,17 +1291,17 @@ class OrdererDetails extends Component {
 		}
 		const isScalingNodesAllowed = this.props.scaleRaftNodesEnabled;
 		const canDeleteLegacy = (this.props.selectedNode && this.props.selectedNode.location !== 'ibm_saas') || isScalingNodesAllowed;
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		const canDeleteSystemless = !this.props.systemChannel;
 		const canDelete = canDeleteLegacy || canDeleteSystemless;
 
 		const buttonsOnTheNodesTab = [];
-		if (isScalingNodesAllowed && ActionsHelper.canCreateComponent(this.props.userInfo) && !free) {
+		if (isScalingNodesAllowed && ActionsHelper.canImportComponent(this.props.userInfo, this.props.feature_flags) && !free) {
 			buttonsOnTheNodesTab.push({
 				text: 'add_orderer_node',
 				fn: this.openAddOrdererNode,
 			});
-		} else if (ActionsHelper.canCreateComponent(this.props.userInfo) && this.isSystemLess(this.props.details)) {
+		} else if (ActionsHelper.canImportComponent(this.props.userInfo, this.props.feature_flags) && this.isSystemLess(this.props.details)) {
 			buttonsOnTheNodesTab.push({
 				text: 'add_orderer_node',
 				fn: this.openAddOrdererNode,
@@ -1277,185 +1311,247 @@ class OrdererDetails extends Component {
 
 		return (
 			<PageContainer>
-				<div>
+				<Row>
 					<PageHeader history={this.props.history}
 						headerName={ordererName ? translate('orderer_details_title', { ordererName: ordererName }) : ''}
 					/>
+				</Row>
+				<Row>
 					{ordererNameSkeleton}
-					<div className="ibp-orderer-details bx--row">
-						{this.props.showAddNode && (
-							<ImportOrdererModal
-								raftParent={this.props.details}
-								systemChannel={this.props.systemChannel}
-								appendingNode={!_.isEmpty(this.props.details)}
-								onClose={this.closeAddOrdererNode}
-								onComplete={() => {
-									this.refresh();
-								}}
-							/>
-						)}
-						{this.props.deleteConsenter && (
-							<OrdererConsenterModal
-								consenter={this.props.deleteConsenter}
-								onClose={this.closeDeleteConsenterModal}
-								onComplete={() => {
-									this.refresh();
-								}}
-								orderer={this.props.details}
-								mode={'delete'}
-							/>
-						)}
-						{this.props.updateConsenter && (
-							<OrdererConsenterModal
-								consenter={this.props.updateConsenter}
-								onClose={this.closeUpdateConsenterModal}
-								onComplete={() => {
-									this.refresh();
-								}}
-								orderer={this.props.details}
-								mode={'update'}
-							/>
-						)}
-						{this.props.selected && (
-							<OrdererModal
-								ordererId={this.props.match.params.ordererId}
-								configtxlator_url={this.props.configtxlator_url}
-								orderer={this.props.selected}
-								singleNodeRaft={_.get(this.props, 'details.raft.length') === 1}
-								ordererModalType={this.props.ordererModalType}
-								onClose={this.closeOrdererSettings}
-								currentCapabilities={this.props.capabilities}
-								isOrdererAdmin={!this.props.disabled}
-								systemChannel={this.props.systemChannel}
-								onComplete={ordererList => {
-									if (this.props.selectedNode) {
-										if (this.props.ordererModalType === 'upgrade') {
-											const details = { ...this.props.details };
-											if (details.raft) {
-												details.raft.forEach(node => {
-													node.status = undefined;
-												});
-											}
-											if (details.pending) {
-												details.pending.forEach(pending => {
-													pending.status = undefined;
-												});
-											}
-											this.props.updateState(SCOPE, {
-												details,
-												selectedNode: {
-													...this.props.selectedNode,
-													status: undefined,
-												},
+					{this.props.showAddNode && (
+						<ImportOrdererModal
+							raftParent={this.props.details}
+							systemChannel={this.props.systemChannel}
+							appendingNode={!_.isEmpty(this.props.details)}
+							onClose={this.closeAddOrdererNode}
+							onComplete={() => {
+								this.refresh();
+							}}
+						/>
+					)}
+					{this.props.deleteConsenter && (
+						<OrdererConsenterModal
+							consenter={this.props.deleteConsenter}
+							onClose={this.closeDeleteConsenterModal}
+							onComplete={() => {
+								this.refresh();
+							}}
+							orderer={this.props.details}
+							mode={'delete'}
+						/>
+					)}
+					{this.props.updateConsenter && (
+						<OrdererConsenterModal
+							consenter={this.props.updateConsenter}
+							onClose={this.closeUpdateConsenterModal}
+							onComplete={() => {
+								this.refresh();
+							}}
+							orderer={this.props.details}
+							mode={'update'}
+						/>
+					)}
+					{this.props.selected && (
+						<OrdererModal
+							clusterId={this.props.match.params.clusterIdPath}
+							configtxlator_url={this.props.configtxlator_url}
+							orderer={this.props.selected}
+							singleNodeRaft={_.get(this.props, 'details.raft.length') === 1}
+							ordererModalType={this.props.ordererModalType}
+							onClose={this.closeOrdererSettings}
+							currentCapabilities={this.props.capabilities}
+							isOrdererAdmin={!this.props.disabled}
+							systemChannel={this.props.systemChannel}
+							onComplete={ordererList => {
+								if (this.props.selectedNode) {
+									if (this.props.ordererModalType === 'upgrade') {
+										const details = { ...this.props.details };
+										if (details.raft) {
+											details.raft.forEach(node => {
+												node.status = undefined;
 											});
-											this.refresh(true);
-										} else {
-											this.refresh();
 										}
-										return;
-									}
-									if (!ordererList) {
-										// Some actions(updating capabilities/block params) do not send the orderer details back
-										ordererList = this.props.details;
-									}
-									if (ordererList) {
-										if (_.isArray(ordererList)) {
-											this.props.updateState(SCOPE, { ordererList });
-										} else {
-											// Clear the associated identity to force the
-											// child components (channels and chaincode) to
-											// be removed from the DOM.  They will be recreated
-											// when we update the state with the new orderer details.
-											const identity = this.props.details.associatedIdentity;
-											this.props.updateState(SCOPE, {
-												details: {
-													...this.props.details,
-													associatedIdentity: null,
-												},
+										if (details.pending) {
+											details.pending.forEach(pending => {
+												pending.status = undefined;
 											});
-											if (!ordererList.associatedIdentity) {
-												ordererList.associatedIdentity = identity;
-											}
-											this.props.updateState(SCOPE, {
-												details: {
-													...ordererList,
-													raft: this.props.details.raft,
-												},
-											});
-											this.refresh();
-											this.props.showBreadcrumb('orderer_details_title', { ordererName: ordererList.cluster_name }, this.props.history.location.pathname);
 										}
+										this.props.updateState(SCOPE, {
+											details,
+											selectedNode: {
+												...this.props.selectedNode,
+												status: undefined,
+											},
+										});
+										this.refresh(true);
+									} else {
+										this.refresh();
 									}
-								}}
-							/>
-						)}
-						<div className="bx--col-lg-4">
-							<div className="ibp-node-details-panel">
-								<div className="ibp-node-details-header">
-									<div className="ibp-node-tags" />
-									<FocusComponent setFocus={this.props.setFocus}>
-										<StickySection
-											openSettings={this.openOrdererSettings}
-											details={this.props.selectedNode || this.props.details}
-											title={this.props.selectedNode ? 'ordering_node_title' : 'ordering_service_title'}
-											exportNode={this.exportOrderer}
-											associateIdentityLabel="ordering_service_identity"
-											loading={this.props.loading}
-											exporting={this.props.exportInProgress}
-											quickActions={this.getQuickActions()}
-											identityNotAssociatedLabel="identity_not_associated_orderer"
-											groups={this.getStickySectionGroups(translate)}
-											noIdentityAssociation={!!this.props.selectedNode}
-											hideDelete={this.props.selectedNode ? !canDelete : false}
-											refreshCerts={this.refreshCerts}
-											hideRefreshCerts={!this.props.selectedNode || (this.props.selectedNode && this.props.selectedNode.location !== 'ibm_saas')}
-										/>
-									</FocusComponent>
-								</div>
+									return;
+								}
+								if (!ordererList) {
+									// Some actions(updating capabilities/block params) do not send the orderer details back
+									ordererList = this.props.details;
+								}
+								if (ordererList) {
+									if (_.isArray(ordererList)) {
+										this.props.updateState(SCOPE, { ordererList });
+									} else {
+										// Clear the associated identity to force the
+										// child components (channels and chaincode) to
+										// be removed from the DOM.  They will be recreated
+										// when we update the state with the new orderer details.
+										const identity = this.props.details.associatedIdentity;
+										this.props.updateState(SCOPE, {
+											details: {
+												...this.props.details,
+												associatedIdentity: null,
+											},
+										});
+										if (!ordererList.associatedIdentity) {
+											ordererList.associatedIdentity = identity;
+										}
+										this.props.updateState(SCOPE, {
+											details: {
+												...ordererList,
+												raft: this.props.details.raft,
+											},
+										});
+										this.refresh();
+										this.props.showBreadcrumb('orderer_details_title', { ordererName: ordererList.cluster_name }, this.props.history.location.pathname);
+									}
+								}
+							}}
+						/>
+					)}
+				</Row>
+				<Row>
+					<div className="ibp-column width-25">
+						<div className="ibp-node-details-panel">
+							<div className="ibp-node-details-header">
+								<div className="ibp-node-tags" />
+								<FocusComponent setFocus={this.props.setFocus}>
+									<StickySection
+										openSettings={this.openOrdererSettings}
+										details={this.props.selectedNode || this.props.details}
+										title={this.props.selectedNode ? 'ordering_node_title' : 'ordering_service_title'}
+										exportNode={this.exportOrderer}
+										associateIdentityLabel="ordering_service_identity"
+										loading={this.props.loading}
+										exporting={this.props.exportInProgress}
+										quickActions={this.getQuickActions()}
+										identityNotAssociatedLabel="identity_not_associated_orderer"
+										groups={this.getStickySectionGroups(translate)}
+										noIdentityAssociation={!!this.props.selectedNode}
+										hideDelete={this.props.selectedNode ? !canDelete : false}
+										refreshCerts={this.refreshCerts}
+										hideRefreshCerts={!this.props.selectedNode || (this.props.selectedNode && this.props.selectedNode.location !== 'ibm_saas')}
+										feature_flags={this.props.feature_flags}
+										userInfo={this.props.userInfo}
+									/>
+								</FocusComponent>
 							</div>
 						</div>
-						<div className="bx--col-lg-12">
-							{this.props.notAvailable && (
-								<div className="ibp-not-available ibp-error-panel">
-									<SidePanelWarning title="orderer_not_available_title"
-										subtitle="orderer_not_available_text"
-									/>
-								</div>
-							)}
-							{_.get(this.props, 'usageInfo.crstatus.type') === 'Warning' && _.get(this.props, 'usageInfo.crstatus.reason') === 'certRenewalRequired' && (
-								<div className="ibp-orderer-warning ibp-error-panel">
-									<SidePanelWarning title="orderer_warning_title"
-										subtitle="orderer_warning_text"
-									/>
-									<TranslateLink className="ibp-orderer-details-cert-expiry-link"
-										text="cert_renew"
-									/>
-								</div>
-							)}
-							{this.props.selectedNode && !this.props.selectedNode.consenter_proposal_fin ? (
-								this.renderPendingNode(translate)
-							) : (
-								<div>
-									{this.props.details && (
-										<Tabs
-											aria-label="sub-navigation"
-											selected={this.props.selectedTab}
-											onSelectionChange={selectedTab => {
-												this.props.updateState(SCOPE, { selectedTab });
-											}}
-										>
+					</div>
+
+					<div className="ibp-column width-75 p-lr-10">
+						{this.props.notAvailable && (
+							<div className="ibp-not-available ibp-error-panel">
+								<SidePanelWarning title="orderer_not_available_title"
+									subtitle="orderer_not_available_text"
+								/>
+							</div>
+						)}
+						{_.get(this.props, 'usageInfo.crstatus.type') === 'Warning' && _.get(this.props, 'usageInfo.crstatus.reason') === 'certRenewalRequired' && (
+							<div className="ibp-orderer-warning ibp-error-panel">
+								<SidePanelWarning title="orderer_warning_title"
+									subtitle="orderer_warning_text"
+								/>
+								<TranslateLink className="ibp-orderer-details-cert-expiry-link"
+									text="cert_renew"
+								/>
+							</div>
+						)}
+						{this.props.selectedNode && !this.props.selectedNode.consenter_proposal_fin ? (
+							this.renderPendingNode(translate)
+						) : (
+							<div>
+								{this.props.details && (
+									<Tabs
+										aria-label="sub-navigation"
+										selected={this.props.selectedTab}
+										onSelectionChange={selectedTab => {
+											this.props.updateState(SCOPE, { selectedTab });
+										}}
+									>
+										<TabList contained>
+											{/* [details section] - an orderer node is NOT selected, this is the top level content */}
 											{!this.props.selectedNode && (
-												<Tab id="ibp-orderer-details"
-													label={translate('details')}
+												<Tab id="ibp-orderer-details">
+													{translate('details')}
+												</Tab>
+											)}
+											{/* [all nodes section] - an orderer node is NOT selected, this is the top level content */}
+											{!this.props.selectedNode && (
+												<Tab id="ibp-orderer-nodes">
+													{translate('ordering_nodes')}
+												</Tab>
+											)}
+											{/* [drill down section] - an orderer node is selected, this is the drill down "info and usage" tab */}
+											{this.props.selectedNode && this.props.selectedNode.consenter_proposal_fin && (
+												<Tab
+													id="ibp-orderer-usage"
+													className={
+														this.props.selectedNode.isUpgradeAvailable &&
+															this.props.selectedNode.location === 'ibm_saas' &&
+															ActionsHelper.canCreateComponent(this.props.userInfo, this.props.feature_flags)
+															? 'ibp-patch-available-tab'
+															: ''
+													}
 												>
-													{!this.props.loading && this.isSystemLess(this.props.details) && !this.props.orderer_tls_identity &&
+													{translate('usage_info', {
+														patch: this.props.selectedNode.isUpgradeAvailable &&
+															this.props.selectedNode.location === 'ibm_saas' &&
+															ActionsHelper.canCreateComponent(this.props.userInfo, this.props.feature_flags) ?
+															(
+																<div className="ibp-details-patch-container">
+																	<div className="ibp-patch-available-tag ibp-node-details"
+																		onClick={() => this.openOrdererSettings('upgrade')}
+																	>
+																		{translate('patch_available')}
+																	</div>
+																</div>
+															) : (
+																''
+															),
+													})}
+												</Tab>
+											)}
+											{/* [drill down section] - an orderer nodes is selected and it is systemless, this is the drill down "Channels" tab */}
+											{this.isSystemLess(this.props.selectedNode) && (
+												<Tab id="ibp-orderer-channels">
+													{translate('channels')}
+												</Tab>
+											)}
+										</TabList>
+
+										<TabPanels>
+											{!this.props.selectedNode && (
+												<TabPanel>
+													{(!this.props.loading && this.channelParticipationEnabled(this.props.details) && !this.props.orderer_tls_identity) && (
 														<div>
 															<SidePanelWarning title="tls_identity_not_found"
-																subtitle="orderer_tls_admin_identity_not_found"
+																subtitle={translate(this.isSystemLess(this.props.details) ?
+																	'orderer_tls_admin_identity_not_found' : 'orderer_tls_admin_identity_not_found2')}
 															/>
 														</div>
-													}
-													{this.channelParticipationEnabled(this.props.details) && this.props.orderer_tls_identity &&
+													)}
+
+													{/*
+													its possible for an orderer to be at fabric v2.4, have CP features enabled, but still have a system channel, (it is not systemless yet)
+													so we still need to show them the ChannelParticipationDetails modal, which has the ability to remove the system channel
+													*/}
+													{this.channelParticipationEnabled(this.props.details) && this.props.orderer_tls_identity && (
 														<ChannelParticipationDetails
 															selectedNode={this.props.selectedNode}
 															channelList={this.props.channelList}
@@ -1465,7 +1561,7 @@ class OrdererDetails extends Component {
 															isSystemLess={this.isSystemLess(this.props.details)}
 															drillDown={false}
 														/>
-													}
+													)}
 													{!this.props.loading && !hasAssociatedIdentities && (
 														<div className="ibp-orderer-no-identity">
 															<p>{translate('orderer_no_identity')}</p>
@@ -1487,28 +1583,28 @@ class OrdererDetails extends Component {
 																orderer={this.props.details}
 																configtxlator_url={this.props.configtxlator_url}
 																onClose={this.onClose}
-																ordererId={this.props.match.params.ordererId}
+																clusterId={this.props.match.params.clusterIdPath}
 																loading={this.props.sysChLoading}
 																disableAddItem={this.props.disabled}
+																feature_flags={this.props.feature_flags}
 															/>
 															<OrdererMembers
 																admins={this.props.admins}
 																members={this.props.members}
 																configtxlator_url={this.props.configtxlator_url}
-																ordererId={this.props.match.params.ordererId}
+																clusterId={this.props.match.params.clusterIdPath}
 																onClose={this.onClose}
 																loading={this.props.sysChLoading}
 																disableAddItem={this.props.disabled}
+																feature_flags={this.props.feature_flags}
 															/>
 															{this.renderConsenters(translate)}
 														</div>
 													)}
-												</Tab>
+												</TabPanel>
 											)}
 											{!this.props.selectedNode && (
-												<Tab id="ibp-orderer-nodes"
-													label={translate('ordering_nodes')}
-												>
+												<TabPanel>
 													<div className="orderer-details-nodes-container">
 														<ItemContainer
 															containerTitle="ordering_nodes"
@@ -1527,45 +1623,16 @@ class OrdererDetails extends Component {
 															addItems={buttonsOnTheNodesTab}
 														/>
 													</div>
-												</Tab>
+												</TabPanel>
 											)}
 											{this.props.selectedNode && this.props.selectedNode.consenter_proposal_fin && (
-												<Tab
-													id="ibp-orderer-usage"
-													className={
-														this.props.selectedNode.isUpgradeAvailable &&
-															this.props.selectedNode.location === 'ibm_saas' &&
-															ActionsHelper.canCreateComponent(this.props.userInfo)
-															? 'ibp-patch-available-tab'
-															: ''
-													}
-													label={translate('usage_info', {
-														patch:
-															this.props.selectedNode.isUpgradeAvailable &&
-																this.props.selectedNode.location === 'ibm_saas' &&
-																ActionsHelper.canCreateComponent(this.props.userInfo) ?
-																(
-																	<div className="ibp-details-patch-container">
-																		<div className="ibp-patch-available-tag ibp-node-details"
-																			onClick={() => this.openOrdererSettings('upgrade')}
-																		>
-																			{translate('patch_available')}
-																		</div>
-																	</div>
-																) : (
-																	''
-																),
-													})}
-												>
+												<TabPanel>
 													<NodeDetails node={this.props.selectedNode} />
 													{this.renderUsage(translate)}
-												</Tab>
+												</TabPanel>
 											)}
 											{this.isSystemLess(this.props.selectedNode) && (
-												<Tab
-													id="ibp-orderer-channels"
-													label={translate('channels')}
-												>
+												<TabPanel>
 													<ChannelParticipationDetails
 														selectedNode={this.props.selectedNode}
 														channelList={this.props.channelList}
@@ -1574,35 +1641,35 @@ class OrdererDetails extends Component {
 														unJoinComplete={this.getCPChannelList}
 														drillDown={true}
 													/>
-												</Tab>
+												</TabPanel>
 											)}
-										</Tabs>
-									)}
-								</div>
-							)}
-							{this.props.usageModal && this.props.selectedNode && (
-								<ReallocateModal
-									details={this.props.selectedNode}
-									usageInfo={this.props.usageInfo[this.props.selectedNode.id]}
-									onClose={this.hideUsageModal}
-									onComplete={() => {
-										const usageInfo = this.props.usageInfo;
-										usageInfo[this.props.selectedNode.id] = null;
-										this.props.updateState(SCOPE, { usageInfo });
-										ComponentApi.getUsageInformation(this.props.selectedNode)
-											.then(nodeUsageInfo => {
-												usageInfo[this.props.selectedNode.id] = nodeUsageInfo;
-												this.props.updateState(SCOPE, { usageInfo });
-											})
-											.catch(error => {
-												Log.error(error);
-											});
-									}}
-								/>
-							)}
-						</div>
+										</TabPanels>
+									</Tabs>)}
+							</div>
+						)}
+
+						{this.props.usageModal && this.props.selectedNode && (
+							<ReallocateModal
+								details={this.props.selectedNode}
+								usageInfo={this.props.usageInfo[this.props.selectedNode.id]}
+								onClose={this.hideUsageModal}
+								onComplete={() => {
+									const usageInfo = this.props.usageInfo;
+									usageInfo[this.props.selectedNode.id] = null;
+									this.props.updateState(SCOPE, { usageInfo });
+									NodeRestApi.getCompsResources(this.props.selectedNode)
+										.then(nodeUsageInfo => {
+											usageInfo[this.props.selectedNode.id] = nodeUsageInfo;
+											this.props.updateState(SCOPE, { usageInfo });
+										})
+										.catch(error => {
+											Log.error(error);
+										});
+								}}
+							/>
+						)}
 					</div>
-				</div>
+				</Row>
 			</PageContainer>
 		);
 	}
@@ -1649,7 +1716,7 @@ OrdererDetails.propTypes = {
 	showWarning: PropTypes.func,
 	updateBreadcrumb: PropTypes.func,
 	updateState: PropTypes.func,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default connect(
@@ -1673,4 +1740,4 @@ export default connect(
 		updateBreadcrumb,
 		updateState,
 	}
-)(withLocalize(OrdererDetails));
+)(withTranslation()(withRouter(OrdererDetails)));

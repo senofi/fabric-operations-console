@@ -1,6 +1,6 @@
 .support-left-section {
 	position: sticky;
-	background-color: $carbon--cool-gray-90;
+	background-color: $cool-gray-90;
 
 	.support-versions-section {
 		padding-top: 0.1rem;
@@ -18,6 +18,8 @@
 	.ibp-support2 {
 		padding-top: 1rem;
 		padding-left: 1rem;
+		padding-bottom: 1rem;
+		padding-right: 1rem;
 		font-size: inherit;
 		line-height: 1.5rem;
 		border-top: 2px solid $background;
@@ -26,18 +28,21 @@
 
 .support-contact-section {
 	.support-contact-button {
-		@include carbon--type-style('body-short-02');
+		@include type-style('body-short-02');
 		height: 5rem;
 		width: 100%;
 	}
 
 	padding-top: 3rem;
 
-	.bx--btn--secondary.ibp__add--item--button-with-text {
+	// .cds--btn--secondary
+	.ibp__add--item--button-with-text {
 		max-width: 100%;
+		width: 100%;
 	}
 
-	.bx--btn--secondary.ibp__add--item--button-with-text.support-button-label {
+	// .cds--btn--secondary
+	.ibp__add--item--button-with-text.support-button-label {
 		height: 100%;
 		padding-top: 1rem;
 		padding-bottom: 1rem;

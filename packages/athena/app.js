@@ -22,7 +22,6 @@ const tools = {										// stateless util libs should go here, ~8% faster start
 	fs: require('fs'),
 	path: require('path'),
 	async: require('async'),
-	request: require('request'),
 	crypto: require('crypto'),
 	uuidv4: require('uuid/v4'),
 	yaml: require('js-yaml'),
@@ -30,7 +29,11 @@ const tools = {										// stateless util libs should go here, ~8% faster start
 	NodeCache: require('node-cache'),
 	winston: require('winston'),
 	selfsigned: require('selfsigned'),
+	zlib: require('zlib'),
+	axios: require('axios'),
 };
+
+tools.request = require('./libs/request_axios.js')(tools.axios);
 
 const bodyParser = require('body-parser');
 const http = require('http');
@@ -60,6 +63,7 @@ let server_settings = {};
 let sessionMiddleware = null;
 let couch_interval = null;
 let migration_interval = null;
+let migration_timeout = null;
 const http_metrics_route = '/api/v[123]/http_metrics/:days?';
 const healthcheck_route = '/api/v3/healthcheck';
 const metric_opts = {
@@ -74,6 +78,7 @@ const metric_opts = {
 	healthcheck_route: healthcheck_route
 };
 const maxSize = '25mb';
+const grpcMaxSize = '100mb';
 let load_cache_interval = null;
 let check_tls_interval = null;
 let load_cache_timer = null;
@@ -116,8 +121,15 @@ if (!process.env.CONFIGURE_FILE) {
 // setup Logger
 tools.log_lib = require('./libs/log_lib.js')(tools);
 process.env.ATHENA_ID = tools.log_lib.simpleRandomStringLC(5);		// unique id to see which instance we were load balanced to
-let logger = tools.log_lib.build_server_logger();					// this builds a winston logger
+
 // (if a lib consumes this logger, rebuild the lib once we get the db settings. this will pass the right log level to the lib)
+let logger = tools.log_lib.build_server_logger();					// this builds a winston logger
+tools.root_misc = require('./libs/root_misc.js')(logger);
+
+// edit db connection string to fix the ipv6 and ipv4 thing
+logger.debug('[couchdb] - env var DB_CONNECTION_STRING original:', tools.root_misc.redact_basic_auth(process.env.DB_CONNECTION_STRING));
+process.env.DB_CONNECTION_STRING = tools.root_misc.fix_localhost(process.env.DB_CONNECTION_STRING);
+logger.debug('[couchdb] - env var DB_CONNECTION_STRING edited:', tools.root_misc.redact_basic_auth(process.env.DB_CONNECTION_STRING));
 
 // setup base libs (only the libs we need to get settings from the db - the rest come later
 tools.ot_misc = require('./libs/ot_misc.js')(logger, tools);
@@ -131,8 +143,8 @@ app.use(bodyParser.text({ type: 'text/html', limit: maxSize }));
 app.use(['/api/', '/ak/'], bodyParser.text({ type: 'text/plain', limit: maxSize }));
 app.use(bodyParser.json({ limit: maxSize }));
 app.use(bodyParser.urlencoded({ extended: true, limit: maxSize }));
-app.use(bodyParser.raw({ type: 'application/grpc-web+proto', limit: maxSize }));	// leave as buffer (w/o this line req.body is empty)
-app.use('/proxy/', bodyParser.raw({ type: 'multipart/form-data', limit: maxSize }));// leave as buffer (w/o this line req.body is empty)
+app.use(bodyParser.raw({ type: 'application/grpc-web+proto', limit: grpcMaxSize }));	// leave as buffer (w/o this line req.body is empty)
+app.use('/proxy/', bodyParser.raw({ type: 'multipart/form-data', limit: grpcMaxSize }));// leave as buffer (w/o this line req.body is empty)
 app.set('env', 'production');														// don't echo express errors to the client
 app.use(compression());
 look_for_couchdb(() => {
@@ -143,7 +155,6 @@ look_for_couchdb(() => {
 
 // load the config file (yaml or json) and store it
 function load_config(file_name) {
-	console.log('reading config file:', file_name);					// we don't have a logger yet, use console
 	const temp = _load_config(file_name);
 	if (temp) {
 		tools.config_file = temp;
@@ -154,55 +165,62 @@ function load_config(file_name) {
 
 // get the config file (yaml or json)
 function _load_config(file_name) {
+	let data = null;
 	if (file_name.indexOf('.json') >= 0) {
 		try {
-			return JSON.parse(tools.fs.readFileSync(file_name));
+			data = JSON.parse(tools.fs.readFileSync(file_name));
 		} catch (e) {												// we don't have a logger yet, use console
 			console.error('Error - Unable to load json configuration file', file_name);
 			console.error(e);
 		}
 	} else {
 		try {														// use yaml ib if its not json
-			return tools.yaml.safeLoad(tools.fs.readFileSync(file_name, 'utf8'));
+
+			data = tools.yaml.load(tools.fs.readFileSync(file_name, 'utf8'));
 		} catch (e) {
 			console.error('Error - Unable to load yaml configuration file', file_name);
 			console.error(e);
+			data = null;
 		}
 	}
-	return null;
+	return data;
 }
 
 //--------------------------------------------------------
-// Make sure CouchDB is running/reachable - gives CouchDB one minute to be found, otherwise terminates the process
+// Make sure CouchDB is running & reachable - gives CouchDB time to be found, otherwise terminates the process
 //--------------------------------------------------------
+
 function look_for_couchdb(cb) {
-	let startTime = new Date().getTime();
-	tools.couch_lib.checkIfCouchIsRunning((err) => {								// check for couchdb once before starting the interval
-		if (err) {
-			logger.debug('[couchdb loop] Pinging CouchDB. Will start server when we get a response from couchdb');
-			couch_interval = setInterval(() => {
-				if (new Date().getTime() - startTime > 1 * 60 * 1000) {
-					clearInterval(couch_interval);
-					logger.error('[couchdb loop] CouchDB was never found to be running');
-					process.exit();
-				}
-				tools.couch_lib.checkIfCouchIsRunning((err) => {					// couchdb wasn't found on the primer check. checking on interval
-					if (err) {
-						logger.debug('[couchdb loop] Pinging CouchDB. Will start server when we get a response from couchdb');
-					} else {
-						clearInterval(couch_interval);
-						logger.debug('[couchdb loop] CouchDB was found! Proceeding');
-						create_databases(() => {
-							return cb();
-						});
-					}
-				});
-			}, 3000);
-		} else {
-			logger.debug('[couchdb loop] CouchDB was found! Proceeding');
+	const startTime = Date.now();
+	logger.info('[couchdb loop] pinging couchdb - will start server when we get a good response from the database');
+	tools.couch_lib.checkIfCouchIsRunning((err) => {							// check for couchdb once before starting the interval
+		if (!err) {
+			logger.debug('[couchdb loop] couchdb was found! proceeding');
 			create_databases(() => {
 				return cb();
 			});
+		} else {
+			// couchdb was not found, start polling on it until its up or we timeout
+			clearInterval(couch_interval);
+			couch_interval = setInterval(() => {
+				if (Date.now() - startTime > 1.5 * 60 * 1000) {					// spin for 90 seconds
+					clearInterval(couch_interval);
+					logger.error('[couchdb loop] giving up on pinging couchdb - unable to connect. you should check on the couchdb container');
+					process.exit();
+				} else {
+					tools.couch_lib.checkIfCouchIsRunning((err) => {
+						if (err) {
+							logger.warn('[couchdb loop] unable to connect to couchdb, must not be up yet, will try again. err:', err);
+						} else {
+							clearInterval(couch_interval);
+							logger.debug('[couchdb loop] couchdb was found! proceeding');
+							create_databases(() => {
+								return cb();
+							});
+						}
+					});
+				}
+			}, 1000);
 		}
 	});
 }
@@ -253,11 +271,13 @@ function setup_routes_and_start() {
 
 	// rebuild tools with the log level from settings db (this logger will have the client's log level instead of the default log level)
 	tools.ot_misc = require('./libs/ot_misc.js')(logger, tools);
-	tools.couch_lib = require('./libs/couchdb.js')(logger, tools, process.env.DB_CONNECTION_STRING);
+	tools.couch_lib = require('./libs/couchdb.js')(logger, tools, ev.DB_CONNECTION_STRING);
+	tools.root_misc = require('./libs/root_misc.js')(logger);
 	tools.http_metrics = require('./libs/http_metrics.js')(logger, tools, metric_opts);
 
 	// http_metrics needs to be one of the first app.use() instances, as soon as possible after ev.update()
 	app.use(tools.http_metrics.start);
+	app.use(tools.http_metrics.start_err);
 	app.use(setHeaders);
 
 	// --- Graceful Shutoff --- // - this route should be right after http_metrics
@@ -413,7 +433,6 @@ function setup_routes_and_start() {
 	tools.auth_scheme = require('./libs/auth_scheme_lib.js')(logger, ev, tools);
 	tools.keys_lib = require('./libs/keys_lib.js')(logger, ev, tools);
 	tools.logging_apis_lib = require('./libs/logging_apis_lib.js')(logger, ev, tools);
-	tools.notification_apis_lib = require('./libs/notification_apis_lib.js')(logger, ev, tools);
 	tools.other_apis_lib = require('./libs/other_apis_lib.js')(logger, ev, tools);
 	tools.permissions_lib = require('./libs/permissions_lib.js')(logger, ev, tools);
 	tools.signature_collection_lib = require('./libs/signature_collection_lib.js')(logger, ev, tools);
@@ -432,8 +451,11 @@ function setup_routes_and_start() {
 	tools.jupiter_lib = require('./libs/jupiter_lib.js')(logger, ev, tools);
 
 	update_settings_doc(() => {
+		// To up athena messaging listener
 		setup_pillow_talk();
 	});
+
+
 
 	// Used to update the passport when the URL changes
 	tools.update_passport = () => {
@@ -459,11 +481,18 @@ function setup_routes_and_start() {
 		res.send(tools.fs.readFileSync(tools.path.join(__dirname, req.path)));		// used to debug versions, only logged in users
 	});
 
-	// json parsing error
+	//---------------------------------------------------------------------------------------------
+	// [Handle body-parser errors]
+	//---------------------------------------------------------------------------------------------
+	// make sure to set 4 params here, the unusual one is the error param and this is to handle body parser errors
+	// otherwise they are silent/absorbed...!
 	app.use((error, req, res, next) => {
-		if (error && error.toString().includes('Unexpected token')) {				// body parser creates this error if given malformed json
-			logger.error('[body-parser.js] invalid json', error.toString());
+		if (error && error.toString().includes('Unexpected token')) {			// body parser creates this error if given malformed json
+			logger.error('[' + req._tx_id + '] bodyParser error - invalid json', error.toString());
 			return res.status(400).json({ statusCode: 400, msg: 'invalid json', details: error.toString() });
+		} else if (error) {
+			logger.error('[' + req._tx_id + '] req has error', error.toString());
+			return res.status(400).json({ statusCode: 400, msg: 'input error', details: error.toString() });
 		} else {
 			return next();
 		}
@@ -581,6 +610,7 @@ function setup_routes_and_start() {
 		load_component_cache();
 		tools.patch_lib.auto_upgrade_orderers();
 	}, (1000 * 60 * 60 * 24) + (1000 * Math.random() * 60 * 2));	// once per day + scatter calls from multi athenas
+
 }
 
 // preload or update the component cache
@@ -595,11 +625,12 @@ function load_component_cache() {
 			logger.debug('[components] import only mode detected');
 			logger.debug('[components] loading cache... (no dep)');
 			const opts = { _skip_cache: true };
-			tools.component_lib.get_all_components(opts, () => { });
+			tools.component_lib.get_all_components(opts, () => {
+			});
 		} else {
 			logger.debug('[components] loading cache... (w/dep)');
 			const opts = { _skip_cache: true, _include_deployment_attributes: true };
-			tools.deployer.get_all_components(opts, () => { });
+			tools.deployer.get_all_components(opts, () => {});
 		}
 	}
 }
@@ -612,7 +643,7 @@ function setHeaders(req, res, next) {
 	res.setHeader('X-Content-Type-Options', 'nosniff');									// suggestion by ibm security
 	res.setHeader('X-XSS-Protection', '1; mode=block');									// suggestion by ibm security
 	res.setHeader('X-Frame-Options', 'deny');											// suggestion by ibm security
-	res.setHeader('Server', ev.ATHENA_VERSION);											// needed for ONECLOUD UX302
+	// res.setHeader('Server', ev.ATHENA_VERSION);											// needed for ONECLOUD UX302
 
 	let setNoCache = false;
 	if (req.url.indexOf('/api/') === 0 || req.url.indexOf('/ak/api/') === 0) {			// all api routes follow the pattern /api/* and /ak/api/*
@@ -624,7 +655,7 @@ function setHeaders(req, res, next) {
 	}
 	if (setNoCache) {																	// if asking for JSON, add no cache headers
 		no_cache_headers(res);
-		res.setHeader('Content-Security-Policy', 'default-src \'self\'; frame-ancestors \'none\'');	// suggestion by dsh
+		res.setHeader('Content-Security-Policy', 'default-src \'self\'; frame-ancestors \'none\'; object-src \'none\'');	// suggestion by dsh
 	} else {
 		if (ev && Array.isArray(ev.CSP_HEADER_VALUES)) {
 			res.setHeader('Content-Security-Policy', ev.CSP_HEADER_VALUES.join(';'));	// theres a bunch of things in here for the "Braze" tool
@@ -643,6 +674,7 @@ function update_settings_doc(cb) {
 			logger.error('[startup] an error occurred obtaining the "' + process.env.SETTINGS_DOC_ID + '"', err, settings_doc);
 			return cb();
 		} else {
+			// TODO: It is OR condition for value not matched.
 			const field = [];
 			if (settings_doc.host_url !== ev.HOST_URL) {
 				field.push('host_url');
@@ -701,13 +733,12 @@ function update_settings_doc(cb) {
 // listen for athena messages
 function setup_pillow_talk() {
 	tools.pillow.listen((_, doc) => {
-
 		// --- Restart --- //
 		if (doc.message_type === 'restart') {
 			logger.debug('[pillow] - received a restart message');
 			const notice = {
 				status: 'success',
-				message: 'restarting application via pillow talk',
+				message: 'restarting application',
 				by: doc.by,
 				severity: 'warning',
 			};
@@ -723,7 +754,7 @@ function setup_pillow_talk() {
 			logger.debug('[pillow] - received a delete all sessions message');
 			const notice = {
 				status: 'success',
-				message: 'deleting all sessions via pillow talk',
+				message: 'deleting all sessions',
 				by: doc.by,
 				severity: 'warning',
 			};
@@ -735,15 +766,14 @@ function setup_pillow_talk() {
 		// --- Flush all caches --- //
 		if (doc.message_type === 'flush_cache') {
 			logger.debug('[pillow] - received a flush all caches message');
-			const notice = {
-				status: 'success',
-				message: 'flushing all caches via pillow talk',
-				by: doc.by,
-				severity: 'warning',
-			};
-			tools.notifications.create(notice, () => {				// send notification to clients
-				tools.caches.flush_all();
-			});
+			tools.caches.flush_all();
+		}
+
+		// --- Clear Session Related Caches --- //
+		if (doc.message_type === 'flush_session_cache') {
+			logger.debug('[pillow] - received a clear-session-cache message');
+			tools.session_store._flush_cache();
+			tools.iam_lib.flush_cache();
 		}
 
 		// --- Evict cache keys --- //
@@ -764,6 +794,12 @@ function setup_pillow_talk() {
 		if (doc.message_type === 'settings_doc_update') {
 			logger.debug('[pillow] - received a settings update message');
 			ev.update(null);										// reload ev settings
+		}
+
+		// --- Passport Update --- //
+		if (doc.message_type === 'passport') {
+			logger.debug('[pillow] - received a passport update message');
+			setup_passport();
 		}
 
 		// --- Requesting HTTP Metrics Docs --- //
@@ -802,15 +838,23 @@ function setup_pillow_talk() {
 		if (doc.message_type === 'monitor_migration') {
 			logger.debug('[pillow] - received message to start monitoring ' + doc.sub_type + ' progress, interval: ', ev.MIGRATION_MON_INTER_SECS, 'secs');
 			clearInterval(migration_interval);
-			migration_interval = setInterval(() => {
-				tools.migration_lib.check_migration_status(doc);
-			}, ev.MIGRATION_MON_INTER_SECS * 1000);
+			clearTimeout(migration_timeout);
+			migration_timeout = setTimeout(() => {
+				//if (doc.quick) {
+				//	tools.migration_lib.check_migration_status(doc);			// call it now if its a quick step
+				//}
+
+				migration_interval = setInterval(() => {
+					tools.migration_lib.check_migration_status(doc);
+				}, ev.MIGRATION_MON_INTER_SECS * 1000);							// start poll for watching the migration status
+			}, (doc.quick ? 2 : 10) * 1000 * Math.random());					// stagger the polling so multiple athenas don't ask at the exact same time
 		}
 
 		// --- Receiving Migration Monitoring Stop Doc --- //
 		if (doc.message_type === 'monitor_migration_stop') {
 			logger.debug('[pillow] - received message to stop or pause monitoring migration progress');
 			clearInterval(migration_interval);
+			clearTimeout(migration_timeout);
 		}
 	});
 }
@@ -855,7 +899,14 @@ function make_rate_limiter(log_msg, max_req) {
 // Debug Logs - fires on most routes
 //---------------------
 function setup_debug_log() {
-	app.use(function (req, res, next) {
+	app.use(function (err, req, res, next) {			// we have to register function with 4 inputs (has error)
+		return log_req(err, req, res, next);
+	});
+	app.use(function (req, res, next) {					// and we have to register function with 3 inputs (no error)
+		return log_req(null, req, res, next);
+	});
+
+	function log_req(err, req, res, next) {
 		req._tx_id = tools.ot_misc.buildTxId(req); 						// make an id that follows this requests journey, gets logged
 		req._orig_headers = JSON.parse(JSON.stringify(req.headers));	// store original headers, b/c we might rewrite the authorization header
 		req._notifications = [];										// create an array to store athena notifications generated by the request
@@ -869,17 +920,21 @@ function setup_debug_log() {
 			}
 		}
 
-		if (req.path.includes(healthcheck_route)) {						// avoid spamming logs with the healtcheck api
+		if (req.path.includes(healthcheck_route)) {						// avoid spamming logs with the healthcheck api
 			print_log = false;
 		}
 
 		if (print_log) {
-			const safe_url = req.path ? req.path : 'n/a';		// no longer need to encodeURI(path), automatically done
+			const safe_url = req.path ? req.path : 'n/a';				// no longer need to encodeURI(path), automatically done
 			logger.silly('--------------------------------- incoming request ---------------------------------');
 			logger.info('[' + req._tx_id + '] New ' + req.method + ' request for url:', safe_url);
 		}
-		next();
-	});
+		if (err) {
+			return next(err, req, res);									// pass the error on
+		} else {
+			return next();
+		}
+	}
 }
 
 //---------------------
@@ -887,11 +942,11 @@ function setup_debug_log() {
 //---------------------
 function setup_passport() {
 	if (ev.AUTH_SCHEME === 'appid') {
-		logger.error('[startup] "appid" is no longer supported 08/29/2019');
+		logger.error('[passport setup] "appid" is no longer supported 08/29/2019');
 	} else if (ev.AUTH_SCHEME === 'ibmid' && ev.IBM_ID.CLIENT_ID && ev.IBM_ID.CLIENT_SECRET) {
-		logger.error('[startup] "ibmid" is no longer supported 05/26/2021');
+		logger.error('[passport setup] "ibmid" is no longer supported 05/26/2021');
 	} else if (ev.AUTH_SCHEME === 'iam' && ev.IAM.CLIENT_ID && ev.IAM.CLIENT_SECRET && ev.IAM_API_KEY) {
-		logger.info('[startup] setting up the ibm id (iam) auth scheme');
+		logger.info('[passport setup] setting up the ibm id (iam) auth scheme');
 		passport.use(ev.IAM.STRATEGY_NAME, new OAuth2Strategy({
 			authorizationURL: ev.IAM.AUTHORIZATION_URL,
 			tokenURL: ev.IAM.TOKEN_URL,
@@ -931,13 +986,13 @@ function setup_passport() {
 			return done(null, obj);
 		});
 	} else if (ev.AUTH_SCHEME === 'couchdb') {
-		logger.info('[startup] setting up the couchdb auth scheme');
+		logger.info('[passport setup] setting up the couchdb auth scheme');
 		// there really isn't anything to do...
 	} else if (ev.AUTH_SCHEME === 'initial') {
-		logger.warn('[startup] "initial" auth scheme provided. the app is open to all.');
+		logger.warn('[passport setup] "initial" auth scheme provided. the app is open to all.');
 		// there really isn't anything to do...
 	} else if (ev.AUTH_SCHEME === 'oidc' && ev.IAM_API_KEY) {
-		logger.info('[startup] setting up the OIDC (bedrock IAM) auth scheme');
+		logger.info('[passport setup] setting up the OIDC (bedrock IAM) auth scheme');
 		passport.use(ev.OIDC.STRATEGY_NAME, new OpenIDConnectStrategy({
 			authorizationURL: ev.OIDC.AUTHORIZATION_URL,
 			tokenURL: ev.OIDC.TOKEN_URL,
@@ -979,7 +1034,7 @@ function setup_passport() {
 			return done(null, obj);
 		});
 	} else if (ev.AUTH_SCHEME === 'ldap' && ev.LDAP && ev.LDAP.URL) {
-		logger.info('[startup] setting up the ldap auth scheme');
+		logger.info('[passport setup] setting up the ldap auth scheme');
 		passport.use(ev.LDAP.STRATEGY_NAME, new LDAPStrategy({
 			server: {
 				url: ev.LDAP.URL,
@@ -1013,48 +1068,68 @@ function setup_passport() {
 			return done(null, obj);
 		});
 	} else if (ev.AUTH_SCHEME === 'oauth' && ev.OAUTH) {
-		logger.info('[startup] setting up the generic oauth 2 auth scheme');
+		logger.info('[passport setup] setting up the generic oauth2 auth scheme');
 		passport.use(ev.OAUTH.STRATEGY_NAME, new OAuth2Strategy({
 			authorizationURL: ev.OAUTH.AUTHORIZATION_URL,
 			tokenURL: ev.OAUTH.TOKEN_URL,
 			clientID: ev.OAUTH.CLIENT_ID,
-			response_type: ev.OAUTH.RESPONSE_TYPE, 			// usually 'code',
-			grant_type: ev.OAUTH.GRANT_TYPE, 				// usually 'authorization_code',
+			scope: ev.OAUTH.SCOPE,
+			response_type: ev.OAUTH.RESPONSE_TYPE,
+			grant_type: ev.OAUTH.GRANT_TYPE,
 			clientSecret: ev.OAUTH.CLIENT_SECRET,
 			callbackURL: ev.HOST_URL + ev.LOGIN_URI,
-		}, function (accessToken, refreshToken, profile, done) {
-			try {
-				logger.debug('[oauth] oauth dance complete');
-				if (typeof profile !== 'object') {
-					profile = {};
+		}, function (accessToken, refreshToken, exchangeResp, profile, done) {
+			logger.debug('[oauth] oauth dance complete');
+
+			let payload = null;
+			if (exchangeResp && exchangeResp.id_token) {
+				try {
+					const parts = exchangeResp.id_token.split('.');
+					payload = JSON.parse(tools.misc.decodeb64(parts[1]));		// get the profile out of the token
+				} catch (e) {
+					logger.warn('[oauth] unable to parse the token exchange response as json', e);
 				}
-				profile.authorized_actions = [				// add actions, middleware will look for it
-					ev.STR.CREATE_ACTION,					// lets add all roles for generic oauth
-					ev.STR.DELETE_ACTION,
-					ev.STR.REMOVE_ACTION,
-					ev.STR.IMPORT_ACTION,
-					ev.STR.EXPORT_ACTION,
-					ev.STR.RESTART_ACTION,
-					ev.STR.LOGS_ACTION,
-					ev.STR.VIEW_ACTION,
-					ev.STR.SETTINGS_ACTION,
-					ev.STR.USERS_ACTION,
-					ev.STR.API_KEY_ACTION,
-					ev.STR.NOTIFICATIONS_ACTION,
-					ev.STR.SIG_COLLECTION_ACTION,
-					ev.STR.C_MANAGE_ACTION,
-				];
-				return done(null, profile);						// send profile on to be stored in session
-			} catch (e) {
-				logger.error('[oauth] could not get profile from oauth server', e);
-				return done(null, {
-					authorized_actions: [],
-					given_name: 'Unknown',
-					family_name: 'User',
-					name: 'Unknown User',
-					email: 'whoops@ibm.com',
-				});
 			}
+			if (ev.OAUTH.DEBUG) {
+				logger.debug('[oauth] authorization code was accepted from login');
+				logger.debug('[oauth] received profile:', profile);
+				logger.debug('[oauth] received response from token exchange:', exchangeResp);
+				logger.debug('[oauth] payload in JWT response:', payload);
+			}
+
+
+			if (typeof profile !== 'object') {													// init if it dne
+				profile = {};
+			}
+			if (payload) {
+				profile.uuid = profile.sub || profile.uuid || profile.id || profile.uid;		// first get uuid from profile if possible
+				if (!profile.uuid) {
+					profile.uuid = payload.sub || payload.uuid || payload.id || payload.uid;	// if not found try getting user id from payload
+				}
+				if (payload.email && typeof payload.email === 'string') {
+					profile.email = payload.email.toLowerCase();
+				}
+				for (let key in payload) {														// copy fields from payload over
+					if (!profile[key]) {
+						profile[key] = payload[key];
+					}
+				}
+			}
+			delete profile.picture;						// scrub this if found, we'll never need it
+			profile.roles = (profile.email && ev.ACCESS_LIST[profile.email] && ev.ACCESS_LIST[profile.email].roles) ?
+				ev.ACCESS_LIST[profile.email].roles : [];		// get their roles from db
+			profile.authorized_actions = tools.middleware.buildActionsFromRoles(profile.roles, tools.misc.censorEmail(profile.email));
+			if (ev.OAUTH.DEBUG) {
+				logger.debug('[oauth] built profile', JSON.stringify(profile, null, 2));
+			}
+
+			if (Array.isArray(profile.roles) && profile.roles.includes(ev.STR.MANAGER_ROLE)) {
+				tools.other_apis_lib.clear_login_timer();
+			} else {
+				logger.error('[oauth] this user is not a manager, it does not qualify as the first successful login');
+			}
+			return done(null, profile);						// send profile on to be stored in session
+
 		}));
 		passport.serializeUser(function (user, done) {
 			done(null, user);
@@ -1063,7 +1138,7 @@ function setup_passport() {
 			done(null, obj);
 		});
 	} else {
-		logger.error('[startup] value for "auth_scheme" is not understood or there is incomplete data for the chosen scheme.', ev.AUTH_SCHEME);
+		logger.error('[passport setup] value for "auth_scheme" is not understood or there is incomplete data for the chosen scheme.', ev.AUTH_SCHEME);
 	}
 }
 
@@ -1155,7 +1230,7 @@ function setup_tls_and_start_app(attempt) {
 		logger.debug('[tls] looking for tls private key pem in:', process.env.KEY_FILE_PATH);
 		logger.debug('[tls] looking for tls cert in:', process.env.PEM_FILE_PATH);
 		if (!process.env.KEY_FILE_PATH || !process.env.PEM_FILE_PATH) {
-			logger.debug('[tls] ENV vars for tls cert/key paths are not set or empty. will not be able to use tls.');
+			logger.error('[tls] ENV vars for tls cert/key paths are not set or empty. will not be able to use tls.');
 			useHTTPS = false;
 			start_app();
 		} else {
@@ -1262,6 +1337,9 @@ function start_app() {
 		});
 	}
 	httpServer.timeout = ev.HTTP_TIMEOUT;
+	// node doc is here -> https://nodejs.org/api/http.html#serverkeepalivetimeout
+	httpServer.keepAliveTimeout = 0;					// pentesters want *incoming* keep alive connections disabled, a value of 0 disables it
+
 	logger.debug('[startup] using http timeout of', tools.misc.friendly_ms(httpServer.timeout));
 
 	// --- Print logging info --- //
@@ -1282,7 +1360,6 @@ function start_app() {
 	} else {
 		logger.info('[startup] Not storing client log files');
 	}
-	httpServer.timeout = 5 * 60 * 1000;
 
 	// --- Graceful Shutdown --- //
 	httpServer.on('request', (req, res) => {				// inform clients this is their last request
@@ -1291,6 +1368,17 @@ function start_app() {
 			res.setHeader('Connection', 'close');
 		}
 	});
+
+	// get and store the cluster type in the settings doc on startup
+	setTimeout(() => {
+		tools.deployer.store_cluster_type((err) => {
+			if (err) {
+				setTimeout(() => {		// try again in a bit
+					tools.deployer.store_cluster_type();
+				}, 30 * 1000);
+			}
+		});
+	}, 1000 * Math.random() * 10);	// delay call on start to scatter calls from multiple athenas starting at once
 
 	start_ws_server();				// next run the webserver (httpServer must be defined first)
 	config_watcher();
@@ -1538,7 +1626,7 @@ function build_wildcard_routes(express_app) {
 
 // check on the server's tls cert every now and then
 function periodically_check_cert() {
-	if (exports.auto_tls_cert_near_expiration(process.env.PEM_FILE_PATH, ev.STR.TLS_CERT_ORG)) {	// check cert, decide if we should auto-regen
+	if (tools.ot_misc.auto_tls_cert_near_expiration(process.env.PEM_FILE_PATH, ev.STR.TLS_CERT_ORG)) {	// check cert, decide if we should auto-regen
 		logger.warn('[tls] tls is expired or close to it, regenerating');
 		const hostname = tools.misc.get_host(ev.HOST_URL);
 		const regen_opts = {
@@ -1547,6 +1635,6 @@ function periodically_check_cert() {
 			org_name: ev.STR.TLS_CERT_ORG,
 			_lock_name: ev.STR.TLS_LOCK_NAME,
 		};
-		exports.regen_tls_cert(regen_opts, 1, () => { });
+		tools.ot_misc.regen_tls_cert(regen_opts, 1, () => { });
 	}
 }

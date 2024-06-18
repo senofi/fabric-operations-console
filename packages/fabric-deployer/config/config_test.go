@@ -22,7 +22,7 @@ import (
 	"os"
 	"path/filepath"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/IBM-Blockchain/fabric-deployer/config"
@@ -88,19 +88,11 @@ var _ = Describe("Config", func() {
 						Requests: res,
 						Limits:   res,
 					},
-					DinD: &corev1.ResourceRequirements{
-						Requests: res,
-						Limits:   res,
-					},
 					CouchDB: &corev1.ResourceRequirements{
 						Requests: res,
 						Limits:   res,
 					},
 					GRPCProxy: &corev1.ResourceRequirements{
-						Requests: res,
-						Limits:   res,
-					},
-					FluentD: &corev1.ResourceRequirements{
 						Requests: res,
 						Limits:   res,
 					},
@@ -380,20 +372,6 @@ var _ = Describe("Config", func() {
 			err := config.VerifyDefaultStorageAndResource(defaults)
 			Expect(err).NotTo(BeNil())
 			Expect(err.Error()).To(Equal("no default resources set for Peer.Peer"))
-		})
-
-		It("returns an error if Peer.DinD resource values not configured", func() {
-			defaults.Resources.Peer.DinD = nil
-			err := config.VerifyDefaultStorageAndResource(defaults)
-			Expect(err).NotTo(BeNil())
-			Expect(err.Error()).To(Equal("no default resources set for Peer.DinD"))
-		})
-
-		It("returns an error if Peer.Fluentd resource values not configured", func() {
-			defaults.Resources.Peer.FluentD = nil
-			err := config.VerifyDefaultStorageAndResource(defaults)
-			Expect(err).NotTo(BeNil())
-			Expect(err.Error()).To(Equal("no default resources set for Peer.FluentD"))
 		})
 
 		It("returns an error if Peer.GRPCProxy resource values not configured", func() {

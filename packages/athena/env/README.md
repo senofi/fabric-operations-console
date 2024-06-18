@@ -1,9 +1,19 @@
 # Configuration Options
-There are 4 places where athena will pick up settings. In order of hierarchy:
+There are a few places where athena will pick up settings. In order of hierarchy:
 1. [Environment Variable File](#env) - JSON file that will load all keys as env variables on startup. Not required if env variables are already set.
-1. Environment Variables - Existing env variables will override the config file & default settings file.
+1. Environment Variables - Existing env variables will override the config file & settings file.
 1. [Configuration File](#config) - YAML/JSON file will overwrite default settings. Not required if default settings are fine.
-1. [Default Settings File](#default) - Internal JSON file for default values. Users should not modify this file. Changes to defaults can be accomplished with the configuration file.
+1. Settings Doc - The system database has a couchdb doc called `00_settings_athena`. This doc holds the active settings that control the console. While possible, it's not intended for users of the console to edit this doc directly. The configuration file should be used instead.
+1. [Default Settings File](#default) - Internal JSON file for default values. Users should not modify this file. Changes to active settings should be accomplished with the configuration file. This file is only read on startup to get a default value for each setting.
+
+# How to change a setting?
+
+The best way to change a console setting is to change or provide a [Configuration File](#config).
+This file is read on startup, and it will override default and current setting values.
+
+The second best way is to use the [change-console-setting-API-#6](../docs/other_apis.md).
+Like any other console API, the appropriate auth must be created.
+See our [basic API instructions](../docs/permission_apis.md#console-route-differences) and the section on [creating an API key](../docs/permission_apis.md#1-create-an-api-key).
 
 
 <a name="env"></a>
@@ -12,7 +22,7 @@ There are 4 places where athena will pick up settings. In order of hierarchy:
 When deploying athena an environmental JSON file should live in this folder `./en/dev.json`.
 *If these env variables are already set by some other means then this file can be omitted.*
 This file has the minimum settings to reach couch db.
-Once athena reaches couch db it will load the rest of the settings via the default settings doc `00_settings_athena` doc or the config yaml.
+Once athena reaches couch db it will load the rest of the settings by reading the settings doc `00_settings_athena` doc in the system database and then it will read/apply the [configuration yaml](#config) file (if present).
 
 **The file dne**, it must be created if the required fields are not already set.
 
@@ -34,7 +44,7 @@ __Example:__
 "DB_CONNECTION_STRING": "https://username:password@localhost:5984", // required
 
 // The name of the database that contains the settings doc
-"DB_SYSTEM": "athena_system",     // required unless "db_custom_names" is used in config file
+"DB_SYSTEM": "athena-system",     // required unless "db_custom_names" is used in config file
 
 
 // ****** Optional Fields ******
@@ -115,12 +125,12 @@ __Example:__
 <a name="config"></a>
 
 # Configuration File
-This YAML/JSON file will **overwrite any variable** in the default settings doc.
+This YAML/JSON file will **overwrite any variable** in the settings doc.
 On startup this file will be checked against the settings doc in the databases.
 Any missing fields will be populated, and any fields with a different value will be replaced.
 
-Note to devs: Add variables to this file when the end user will not be able to change it via the UI.
-Because during restarts the value in these fields will replace any writes to the settings doc.
+Note: Only add variables to this file when the end user should *not* be able to change it via the UI.
+This is because the APIs that the UI uses can only edit the settings doc, the config file is never edited by the UI, and so everytime the console restarts... the active settings will reload to reflect values in the config file.
 
 **The config file to use can be set with the env variable `CONFIGURE_FILE`.** If not set or empty, no file will be loaded.
 
@@ -223,12 +233,6 @@ __default_settings_doc.json:__
   }
 },
 
-// path to the folder for IBM Activity Tracker event files
-// if null activity tracker is disabled
-// files will rotated by winston
-// defaults './logs/audit.log'
-"activity_tracker_path": './logs/audit.log'
-
 // email address on the UI to surface to users for help
 "admin_contact_email": "ibm@us.ibm.com",
 
@@ -257,12 +261,8 @@ __default_settings_doc.json:__
 // the env variable "AUTH_SCHEME" will override this
 // see below for "Auth Schemes Explained"
 // changes to this field require a restart.
-// examples: 'iam', 'odic', 'ldap', 'oauth', 'ibmid'
-"auth_scheme": "initial",
-
-// how much time in ms to contact the grpcwp. retrieves the backend address
-// defaults 3000
-"backend_address_timeout_ms": 3000,
+// examples: 'initial', 'couchdb', 'iam', 'odic', 'ldap', 'oauth', 'ibmid'
+"auth_scheme": "couchdb",
 
 // CA proxy route's timeout in ms
 // defaults 10000
@@ -326,9 +326,9 @@ __default_settings_doc.json:__
 
 // set custom databases names if the defaults are not okay
 "db_custom_names": {
-  "DB_COMPONENTS": "athena_components",
-  "DB_SESSIONS": "athena_sessions",
-  "DB_SYSTEM": "athena_system"
+  "DB_COMPONENTS": "athena-components",
+  "DB_SESSIONS": "athena-sessions",
+  "DB_SYSTEM": "athena-system"
 },
 
 // default database configuration - do not modify
@@ -359,7 +359,7 @@ __default_settings_doc.json:__
 			"../json_docs/default_settings_doc.json",
 					"../json_docs/system_design_doc.json"
 		],
-		"name": "athena_system"
+		"name": "athena-system"
 	}
 },
 
@@ -466,6 +466,12 @@ __default_settings_doc.json:__
 
 // feature flags for the UI. do not modify unless you know the impact.
 "feature_flags": {
+
+  // if true will log user and api key activity
+  // see doc in ./packages/athena/docs/_event_tracking_notes.md for more information
+  // defaults true
+  "audit_logging_enabled": true,
+
   // if true channel/orderer/application capabilities can be selected during channel creation
   // defaults true
   "capabilities_enabled": true,
@@ -485,6 +491,9 @@ __default_settings_doc.json:__
   // if true the hsm config panel will appear
   // defaults false
   "hsm_enabled": true,
+
+  // legacy - i don't know what this did, but its no longer used - dsh
+  "infra_import_options": {"supported_cas": [], "supported_orderers": [], "supported_peers": [],}
 
   // if true the Fabric 2.0 chaincode lifecycle wizard elements will appear
   // defaults true
@@ -585,7 +594,8 @@ __default_settings_doc.json:__
 // defaults to any host, eg: [".*"]
 // **note** this field overwrites itself as components are added, thus
 // it is not intended to be manually customized
-"host_white_list": [],
+// (the legacy name for this was host_white_list)
+"url_safe_list": [],
 
 // HSM image settings (hardware security module).
 // opaque field to athena. apollo consumes it.

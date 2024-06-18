@@ -53,20 +53,20 @@ jest.mock('../../../src/components/ImportantBox/ImportantBox', () => {
 });
 
 // mocked out the carbon components as the TextInput component was complaining about missing certain properties
-jest.mock('carbon-components-react', () => {
-	return {
-		__esModule: true,
-		ContentSwitcher: () => {
-			return <></>;
-		},
-		Switch: () => {
-			return <></>;
-		},
-		TextInput: () => {
-			return <></>;
-		},
-	};
-});
+// jest.mock('carbon-components-react', () => {
+// 	return {
+// 		__esModule: true,
+// 		ContentSwitcher: () => {
+// 			return <></>;
+// 		},
+// 		Switch: () => {
+// 			return <></>;
+// 		},
+// 		TextInput: () => {
+// 			return <></>;
+// 		},
+// 	};
+// });
 
 describe('JsonInput component', () => {
 	const SCOPE = 'jsonInput';
@@ -97,7 +97,7 @@ describe('JsonInput component', () => {
 			manualEntry: true,
 			onChange: onChangeStub,
 			onError: onErrorStub,
-			translate: translateStub,
+			t: translateStub,
 			updateState: updateStateStub,
 		};
 	});
@@ -288,12 +288,12 @@ describe('JsonInput component', () => {
 			const component = shallow(<JsonInput {...props} />);
 			const jsonUploadJSX = mount(component.instance().renderJSONUpload(translateStub));
 			jsonUploadJSX
-				.find('_default')
+				.find('default')
 				.at(0)
 				.props()
 				.text.should.deep.equal('error_single_input_box');
 			jsonUploadJSX
-				.find('_default')
+				.find('default')
 				.at(0)
 				.contains('ImportantBox component goes here')
 				.should.deep.equal(true);

@@ -13,10 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
 */
-import { CodeSnippet } from 'carbon-components-react';
+import { CodeSnippet } from "@carbon/react";
 import PropTypes from 'prop-types';
 import React from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import { updateState } from '../../redux/commonActions';
 import ChannelApi from '../../rest/ChannelApi';
@@ -26,6 +26,7 @@ import Form from '../Form/Form';
 import Logger from '../Log/Logger';
 import Wizard from '../Wizard/Wizard';
 import WizardStep from '../WizardStep/WizardStep';
+import RenderParamHTML from '../RenderHTML/RenderParamHTML';
 
 const SCOPE = 'channelConsenterModal';
 const Log = new Logger(SCOPE);
@@ -40,7 +41,7 @@ class ChannelConsenterModal extends React.Component {
 		});
 	}
 
-	removeConsenter = async() => {
+	removeConsenter = async () => {
 		try {
 			let options = {
 				channel_id: this.props.channelId,
@@ -59,7 +60,7 @@ class ChannelConsenterModal extends React.Component {
 		}
 	};
 
-	updateConsenter = async() => {
+	updateConsenter = async () => {
 		try {
 			let options = {
 				channel_id: this.props.channelId,
@@ -101,7 +102,7 @@ class ChannelConsenterModal extends React.Component {
 			>
 				<div className="ibp-remove-consenter-desc">
 					<p>
-						{translate('remove_consenter_application_channel_desc', {
+						{RenderParamHTML(translate, 'remove_consenter_application_channel_desc', {
 							name: (
 								<CodeSnippet
 									type="inline"
@@ -154,7 +155,7 @@ class ChannelConsenterModal extends React.Component {
 			>
 				<div>
 					<p>
-						{translate('update_consenter_application_channel_desc', {
+						{RenderParamHTML(translate, 'update_consenter_application_channel_desc', {
 							name: (
 								<CodeSnippet
 									type="inline"
@@ -212,7 +213,7 @@ class ChannelConsenterModal extends React.Component {
 	}
 
 	render() {
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		const mode = this.props.mode;
 		return (
 			<Wizard
@@ -247,7 +248,7 @@ ChannelConsenterModal.propTypes = {
 	onComplete: PropTypes.func,
 	onClose: PropTypes.func,
 	updateState: PropTypes.func,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default connect(
@@ -259,4 +260,4 @@ export default connect(
 	{
 		updateState,
 	}
-)(withLocalize(ChannelConsenterModal));
+)(withTranslation()(ChannelConsenterModal));

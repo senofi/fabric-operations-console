@@ -30,9 +30,9 @@ import (
 	"github.com/IBM-Blockchain/fabric-deployer/deployer/components/common"
 	"github.com/IBM-Blockchain/fabric-deployer/deployer/components/orderer/api"
 	"github.com/IBM-Blockchain/fabric-deployer/deployer/util"
-	config "github.com/IBM-Blockchain/fabric-operator/api/orderer/v1"
-	v2config "github.com/IBM-Blockchain/fabric-operator/api/orderer/v2"
 	current "github.com/IBM-Blockchain/fabric-operator/api/v1beta1"
+	config "github.com/IBM-Blockchain/fabric-operator/pkg/apis/orderer/v1"
+	v2config "github.com/IBM-Blockchain/fabric-operator/pkg/apis/orderer/v2"
 
 	"go.uber.org/zap"
 
@@ -81,6 +81,7 @@ type Kube interface {
 	UpdateSecret(namespace, name, path string, data []byte) (*corev1.Secret, error)
 	DeleteDeployment(namespace string, depName string) error
 	GetPodsByLabel(namespace, name string) (*corev1.Pod, error)
+	ClusterType(namespace string) string
 }
 
 //go:generate counterfeiter -o mocks/ibp_client.go -fake-name IBPOperatorClient . IBPOperatorClient
@@ -121,7 +122,7 @@ func (o *Orderer) Images(version string) *current.OrdererImages {
 	images.EnrollerImage = ordererVersionedImages.EnrollerImage
 	images.GRPCWebImage = ordererVersionedImages.GRPCWebImage
 
-	if o.Config.UseTags != nil && *o.Config.UseTags {
+	if o.Config.UseTags == nil || *o.Config.UseTags == true {
 		// Set the tags
 		images.OrdererInitTag = ordererVersionedImages.OrdererInitTag
 		images.OrdererTag = ordererVersionedImages.OrdererTag

@@ -102,7 +102,7 @@ describe('Login component', () => {
 			hostUrl: undefined,
 			changePassword: undefined,
 			confirmPassword: undefined,
-			translate: translateStub,
+			t: translateStub,
 			updateState: updateStateStub,
 		};
 	});
@@ -161,7 +161,7 @@ describe('Login component', () => {
 			component
 				.find('button')
 				.at(0)
-				.hasClass('login-button bx--btn bx--btn--primary')
+				.hasClass('login-button cds--btn cds--btn--primary')
 				.should.equal(true);
 			component
 				.find('button')
@@ -217,7 +217,7 @@ describe('Login component', () => {
 			component
 				.find('button')
 				.at(0)
-				.hasClass('login-button bx--btn bx--btn--primary')
+				.hasClass('login-button cds--btn cds--btn--primary')
 				.should.equal(true);
 			component
 				.find('button')
@@ -269,7 +269,7 @@ describe('Login component', () => {
 			component
 				.find('button')
 				.at(0)
-				.hasClass('login-button bx--btn bx--btn--primary')
+				.hasClass('login-button cds--btn cds--btn--primary')
 				.should.equal(true);
 			component
 				.find('button')
@@ -290,10 +290,11 @@ describe('Login component', () => {
 		});
 
 		it('should modify window.location.href if login successful', async() => {
+			const onLogin = mySandBox.stub().returns(true);
 			const component = shallow(<Login {...props} />);
 			props.email = 'an@email';
 			props.login_password = 'password';
-			props.hostUrl = 'some.other.url';
+			props.onLogin = onLogin;
 			component.setProps(props);
 
 			await component.instance().onLogin('unusedInput');
@@ -301,7 +302,8 @@ describe('Login component', () => {
 			logInfoStub.should.have.been.calledWithExactly(`Logging in as ${props.email}`);
 			loginStub.should.have.been.calledWithExactly(props.email, props.login_password);
 			logDebugStub.should.have.been.calledWithExactly(`Logged in as ${props.email}:`, 'login response');
-			window.location.href.toString().should.equal(`${props.hostUrl}/nodes`);
+			onLogin.should.have.been.calledOnce;
+			// window.location.href.toString().should.equal('/nodes');
 		});
 
 		it('should log error if login fails', async() => {
@@ -334,7 +336,6 @@ describe('Login component', () => {
 			const component = shallow(<Login {...props} />);
 			props.currentPassword = 'password';
 			props.newPassword = 'new_password';
-			props.hostUrl = 'some.other.url';
 			component.setProps(props);
 
 			await component.instance().onChangePassword('unusedInput');
@@ -342,7 +343,7 @@ describe('Login component', () => {
 			logInfoStub.should.have.been.calledWithExactly('Changing password');
 			changePasswordStub.should.have.been.calledWithExactly(props.currentPassword, props.newPassword);
 			logInfoStub.should.have.been.calledWithExactly('Changed password:', 'changePassword response');
-			window.location.href.toString().should.equal(`${props.hostUrl}/auth/logout`);
+			window.location.href.toString().should.equal('/auth/logout');
 		});
 
 		it('should log error if changePassword fails with current password error', async() => {

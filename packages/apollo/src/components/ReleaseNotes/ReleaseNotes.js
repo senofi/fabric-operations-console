@@ -13,16 +13,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
 */
-import { SkeletonText } from 'carbon-components-react';
+import { SkeletonText } from "@carbon/react";
 import PropTypes from 'prop-types';
 import React from 'react';
-import { withLocalize } from 'react-localize-redux';
-import Helper from '../../utils/helper';
+import { withTranslation } from 'react-i18next';
 
 const ReleaseNotes = props => {
 	const loading = props.loading || !props.releaseNotes || !props.releaseNotes.length;
 	const releaseNotes = props.releaseNotes ? props.releaseNotes : [];
-	const translate = props.translate;
+	const translate = props.t;
 	return (
 		<div>
 			<div className="ipb-note-header-container">
@@ -87,7 +86,7 @@ const ReleaseNotes = props => {
 ReleaseNotes.propTypes = {
 	loading: PropTypes.bool,
 	releaseNotes: PropTypes.object,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
-export default withLocalize(ReleaseNotes);
+export default withTranslation()(ReleaseNotes);

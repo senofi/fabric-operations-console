@@ -13,12 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
 */
-import { Button, Dropdown, InlineLoading, MultiSelect, RadioButton, SelectableTile, SkeletonText, TextArea, TextInput } from 'carbon-components-react';
-import DropdownSkeleton from 'carbon-components-react/lib/components/Dropdown/Dropdown.Skeleton';
+import { Button, Dropdown, DropdownSkeleton, InlineLoading, MultiSelect, RadioButton, SelectableTile, SkeletonText, TextArea, TextInput } from "@carbon/react";
 import _ from 'lodash';
 import PropTypes from 'prop-types';
 import React, { Component } from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation, Trans } from 'react-i18next';
 import { connect } from 'react-redux';
 import PlusIcon from '../../assets/images/plus.svg';
 import { updateState } from '../../redux/commonActions';
@@ -39,7 +38,11 @@ class Form extends Component {
 		formData[this.props.id] = {};
 		const data = {};
 		this.props.fields.forEach(field => {
-			data[field.name] = this.getDefaultValue(field);
+			if (field.type === 'dropdown' && field.format === 'object') {
+				data[field.name] = { value: this.getDefaultValue(field) };		// some dropdown fields hold an object...
+			} else {
+				data[field.name] = this.getDefaultValue(field);
+			}
 			if (field.type === 'certificates') {
 				const subfields = [];
 				if (data[field.name] && data[field.name].length) {
@@ -281,7 +284,7 @@ class Form extends Component {
 		const markup = (
 			<div className={field.type === 'password' ? 'ibp-input-field-password' : ''}>
 				<TextInput
-					className={field.type === 'password' ? ' ibp-form-password' : ''}
+					// className={field.type === 'password' ? ' ibp-form-password' : ''}
 					id={this.props.id + '-' + field.name}
 					name={field.name}
 					type={field_type}
@@ -346,7 +349,7 @@ class Form extends Component {
 				<TextArea
 					id={this.props.id + '-' + field.name}
 					name={field.name}
-					className="bx--text__input ibm-label"
+					className="cds--text__input ibm-label"
 					value={value || ''}
 					readOnly
 					labelText={translate(field.label || field.name, field.labelOptions)}
@@ -358,7 +361,7 @@ class Form extends Component {
 			<TextArea
 				id={this.props.id + '-' + field.name}
 				name={field.name}
-				className="bx--text__input ibm-label"
+				className="cds--text__input ibm-label"
 				value={value || ''}
 				placeholder={field.placeholder ? translate(field.placeholder) : translate(field.name + '_placeholder')}
 				onChange={evt => {
@@ -389,12 +392,17 @@ class Form extends Component {
 		);
 	}
 
+	// this is weird, why do we have this.... - dsh todo rework
 	fixStringOptions(options) {
 		const opts = [];
 		if (options) {
 			options.forEach(option => {
 				if (typeof option === 'string') {
-					opts.push({ name: option });
+					opts.push({ value: option, name: option });
+				} else if (option.display_name) {
+					opts.push({ ...option, value: option.display_name });	// fabric component dropdown options don't set "value"...
+				} else if (option.version) {
+					opts.push({ ...option, value: option.version });		// fabric version dropdown options don't set "value"...
 				} else {
 					opts.push(option);
 				}
@@ -403,16 +411,33 @@ class Form extends Component {
 		return opts;
 	}
 
-	fixSelectedItem(value, options) {
-		let ret = value;
-		if (typeof value === 'string') {
-			options.forEach(option => {
-				if (option.name === value) {
-					ret = option;
+	// this function will return the selected dropdown option object (or string if applicable).
+	// this is weird, why do we have this mess.... - dsh todo rework
+	// some dropdowns have options that are an array of strings, others are an array of objects like:
+	// 		{name: <field name>, value: <value>}
+	// there are also options that seem to have custom objects, that have a "name" field....
+	fixSelectedItem(data, options) {
+		if (data) {
+			const value = (typeof data === 'string') ? data : data.value;
+			for (let i in options) {
+				if (typeof options[i] === 'string') {
+					if (options[i] === value) {
+						return options[i];
+					}
+				} else {
+					if (value !== undefined) {
+						if (options[i] && options[i].value === value) {
+							return options[i];
+						}
+					} else {			// if there is no "value" field... look for name
+						if (data && data.name && options[i] && options[i].name === data.name) {
+							return options[i];
+						}
+					}
 				}
-			});
+			}
 		}
-		return ret;
+		return null;
 	}
 
 	fixChangedItem(options, item) {
@@ -445,7 +470,7 @@ class Form extends Component {
 						className="ibp-drop-down-container"
 						onMouseOver={evt => {
 							let target = evt.target;
-							if (target.className === 'bx--list-box__label') {
+							if (target.className === 'cds--list-box__label') {
 								if (value && value.tooltip) {
 									target.title = value.tooltip;
 								} else {
@@ -454,7 +479,7 @@ class Form extends Component {
 									}
 								}
 							}
-							if (target.className === 'bx--list-box__menu-item__option') {
+							if (target.className === 'cds--list-box__menu-item__option') {
 								let id = target.parentNode.id;
 								if (id) {
 									while (id.indexOf('-') > -1) {
@@ -808,7 +833,7 @@ class Form extends Component {
 								selected={this.isOptionSelected(option, value)}
 								ref={selectableTileComponent => {
 									if (selectableTileComponent && disabled) {
-										selectableTileComponent.handleKeyDown = function() {};
+										selectableTileComponent.handleKeyDown = function () { };
 									}
 								}}
 							>
@@ -1049,7 +1074,7 @@ class Form extends Component {
 							id={this.props.id + '-' + field.name}
 							name={field.name}
 							type="text"
-							className="bx--text__input ibm-label"
+							className="cds--text__input ibm-label"
 							value={this.props.formProps[field.name].file.name}
 							readOnly={field.readonly}
 							aria-label={translate(field.label || field.name, field.labelOptions)}
@@ -1069,7 +1094,7 @@ class Form extends Component {
 							id={this.props.id + '-' + field.name}
 							name={field.name}
 							type="text"
-							className="bx--text__input ibm-label"
+							className="cds--text__input ibm-label"
 							value={value}
 							readOnly={true}
 							aria-label={translate(field.label || field.name, field.labelOptions)}
@@ -1153,7 +1178,7 @@ class Form extends Component {
 							id={this.props.id + '-' + field.name}
 							name={field.name}
 							type="text"
-							className="bx--text__input ibm-label bx--text-input"
+							className="cds--text__input ibm-label cds--text-input"
 							value={this.props.formProps[field.name].file.name}
 							readOnly={field.readonly}
 							aria-label={translate(field.label || field.name, field.labelOptions)}
@@ -1175,7 +1200,7 @@ class Form extends Component {
 						id={this.props.id + '-' + field.name}
 						name={field.name}
 						type="text"
-						className="bx--text__input ibm-label"
+						className="cds--text__input ibm-label"
 						value={value}
 						readOnly={true}
 						aria-label={translate(field.label || field.name, field.labelOptions)}
@@ -1437,7 +1462,13 @@ class Form extends Component {
 	}
 
 	render() {
-		const translate = this.props.translate;
+		const translate = (value) => {
+			if(typeof value === 'string') {
+				return this.props.t(value);
+			} else {
+				return value;
+			}
+		};
 		try {
 			return (
 				<div className={(this.props.className ? this.props.className + ' ' : '') + 'ibp-form'}
@@ -1478,10 +1509,10 @@ class Form extends Component {
 										htmlFor={noLabelFor ? undefined : this.props.id + '-' + field.name}
 										className={field.disabled ? 'ibp-form-label-disabled' : 'ibp-form-label'}
 									>
-										{field.tooltip && !field.readonly ? (
+										{field.tooltip ? (
 											<BlockchainTooltip direction={field.tooltipDirection}
 												type="definition"
-												tooltipText={translate(field.tooltip, field.tooltipOptions)}
+												tooltipText={<Trans>{translate(field.tooltip, field.tooltipOptions)}</Trans>}
 											>
 												{label}
 											</BlockchainTooltip>
@@ -1511,7 +1542,7 @@ Form.propTypes = {
 	formProps: PropTypes.object,
 	className: PropTypes.string,
 	hideLabel: PropTypes.bool,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default connect(
@@ -1549,4 +1580,4 @@ export default connect(
 	{
 		updateState,
 	}
-)(withLocalize(Form));
+)(withTranslation()(Form));

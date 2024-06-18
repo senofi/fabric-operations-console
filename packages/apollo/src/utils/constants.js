@@ -29,6 +29,7 @@ export const ACTION_COMPONENT_REMOVE = 'blockchain.components.remove';
 export const ACTION_COMPONENT_DELETE = 'blockchain.components.delete';
 export const ACTION_COMPONENT_IMPORT = 'blockchain.components.import';
 export const ACTION_COMPONENT_EXPORT = 'blockchain.components.export';
+export const ACTION_COMPONENT_MANAGE = 'blockchain.components.manage';
 export const ACTION_OPTOOLS_RESTART = 'blockchain.optools.restart';
 export const ACTION_OPTOOLS_LOGS = 'blockchain.optools.logs';
 export const ACTION_OPTOOLS_VIEW = 'blockchain.optools.view';
@@ -54,6 +55,7 @@ export const DEFAULT_CHANNEL_CAPABILITY = 'V1_4_2';
 export const DEFAULT_CHANNEL_CAPABILITY_OSNADMIN = 'V2_0';
 export const DEFAULT_ORDERER_CAPABILITY = 'V1_4_2';
 export const DEFAULT_ORDERER_CAPABILITY_OSNADMIN = 'V2_0';
+export const OPENSHIFT_NAME = 'openshift';
 
 export const BLOCK_HEIGHT_UPGRADE_THRESHOLD = 100 * 1000;
 export const CERTIFICATE_WARNING_DAYS = 30;
@@ -65,6 +67,8 @@ export const SECONDARY_STATUS_PERIOD = 1 * 60 * 1000;
 export const OSN_JOIN_SUCCESS = 'success';
 export const OSN_JOIN_PENDING = 'pending';
 export const OSN_JOIN_ERROR = 'failed';
+export const FAB_JOINED_STATUS = 'active';
+export const FAB_JOINING_STATUS = 'onboarding';
 
 // migration status summary
 export const STATUS_IN_PROGRESS = 'in-progress';
@@ -77,3 +81,10 @@ export const STEP_COMPLETE = '';
 export const STEP_IN_PROGRESS = 'step-active';
 export const STEP_NOT_STARTED = 'step-inactive';
 export const STEP_FAILED = 'step-error';
+
+export const AUTH_COUCHDB = 'couchdb';
+export const AUTH_OAUTH = 'oauth';
+export const AUTH_IAM = 'iam';
+
+export const DEPLOYING = 'deploy';
+export const IMPORTING = 'import';

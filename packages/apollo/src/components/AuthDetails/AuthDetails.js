@@ -12,11 +12,11 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
-*/
-import { InlineNotification } from 'carbon-components-react';
+ */
+import { InlineNotification } from '@carbon/react';
 import PropTypes from 'prop-types';
 import React, { Component } from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import { updateState } from '../../redux/commonActions';
 import Form from '../Form/Form';
@@ -41,13 +41,13 @@ export class AuthDetails extends Component {
 		}
 	}
 
-	handleInputChange = event => {
+	handleInputChange = (event) => {
 		this.props.updateState(this.props.scope, {
 			configJson: '',
 		});
 	};
 
-	retrieveDataFromJson = obj => {
+	retrieveDataFromJson = (obj) => {
 		try {
 			let data = JSON.parse(obj.configJson);
 			let error_message;
@@ -78,7 +78,7 @@ export class AuthDetails extends Component {
 	};
 
 	render = () => {
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		return (
 			<div>
 				{!this.state.isModeManual && (
@@ -103,20 +103,14 @@ export class AuthDetails extends Component {
 					/>
 				)}
 
-				<div className="ibp__auth-configuration--manual"
-					onClick={this.toggleMode}
-				>
+				<div className="ibp__auth-configuration--manual" onClick={this.toggleMode}>
 					{!this.state.isModeManual && translate('enter_manually')}
 					{this.state.isModeManual && translate('enter_json')}
 				</div>
 
 				{this.props.error && !this.state.isModeManual && (
 					<div className="ibp__auth-configuration--error-message">
-						<InlineNotification kind="error"
-							title={translate(this.props.error)}
-							subtitle=""
-							hideCloseButton={true}
-						/>
+						<InlineNotification kind="error" title={translate(this.props.error)} subtitle="" hideCloseButton={true} />
 					</div>
 				)}
 			</div>
@@ -133,17 +127,17 @@ AuthDetails.propTypes = {
 	configJson: PropTypes.string,
 	scope: PropTypes.string,
 	error: PropTypes.string,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default connect(
-	state => {
+	(state) => {
 		return {};
 	},
 	{
 		updateState,
 	}
-)(withLocalize(AuthDetails));
+)(withTranslation()(AuthDetails));
 
 function JSONDataEntry(props) {
 	return (

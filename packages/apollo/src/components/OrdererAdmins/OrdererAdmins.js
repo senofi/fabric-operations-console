@@ -14,10 +14,9 @@
  * limitations under the License.
 */
 
-import _ from 'lodash';
 import PropTypes from 'prop-types';
 import React, { Component } from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import emptyImage from '../../assets/images/empty_msps.svg';
 import { showError, showSuccess, updateState } from '../../redux/commonActions';
@@ -29,6 +28,7 @@ import ItemTileLabels from '../ItemContainerTile/ItemTileLabels/ItemTileLabels';
 import MspDeleteModal from '../MspDeleteModal/MspDeleteModal';
 import SVGs from '../Svgs/Svgs';
 import UpdateChannelMspModal from '../UpdateChannelMspModal/UpdateChannelMspModal';
+import ActionsHelper from '../../utils/actionsHelper';
 
 const SCOPE = 'ordererAdmins';
 
@@ -42,8 +42,8 @@ class OrdererAdmins extends Component {
 	}
 
 	buildCustomTile(admin) {
-		const node_ou = _.get(admin, 'fabric_node_ous.enable') ? 'enabled' : 'disabled';
-		const certificateWarning = node_ou === 'enabled' ? false : Helper.getLongestExpiry(admin.admins);
+		const node_ou = Helper.node_ou_is_enabled(admin);
+		const certificateWarning = node_ou ? false : Helper.getLongestExpiry(admin.admins);
 
 		return (
 			<div className="ibp-orderer-admin-custom-tile">
@@ -183,6 +183,7 @@ class OrdererAdmins extends Component {
 								fn: this.openAddMSPModal,
 								label: 'add_orderer_admin',
 								text: 'add_orderer_admin',
+								disabled: !ActionsHelper.canManageComponent(this.props.userInfo, this.props.feature_flags),
 							},
 						]}
 						tileMapping={{
@@ -196,7 +197,7 @@ class OrdererAdmins extends Component {
 				</div>
 				{this.props.showAddMSPModal && (
 					<ImportMspModal
-						ordererId={this.props.ordererId}
+						clusterId={this.props.clusterId}
 						configtxlator_url={this.props.configtxlator_url}
 						onClose={this.closeAddMSPModal}
 						onComplete={this.props.onClose}
@@ -208,7 +209,7 @@ class OrdererAdmins extends Component {
 				{this.props.showDeleteModal && (
 					<MspDeleteModal
 						onClose={this.closeDeleteMSPModal}
-						ordererId={this.props.ordererId}
+						clusterId={this.props.clusterId}
 						configtxlator_url={this.props.configtxlator_url}
 						selectedMember={this.props.selectedMember}
 						onComplete={this.props.onClose}
@@ -251,11 +252,14 @@ OrdererAdmins.propTypes = {
 
 export default connect(
 	state => {
-		return Helper.mapStateToProps(state[SCOPE], dataProps);
+		let newProps = Helper.mapStateToProps(state[SCOPE], dataProps);
+		newProps['userInfo'] = state['userInfo'] ? state['userInfo'] : null;
+		newProps['feature_flags'] = state['settings'] ? state['settings']['feature_flags'] : null;
+		return newProps;
 	},
 	{
 		updateState,
 		showSuccess,
 		showError,
 	}
-)(withLocalize(OrdererAdmins));
+)(withTranslation()(OrdererAdmins));

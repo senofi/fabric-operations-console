@@ -22,7 +22,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/pkg/errors"
 	"go.uber.org/zap/zaptest"
@@ -35,8 +35,8 @@ import (
 	"github.com/IBM-Blockchain/fabric-deployer/deployer/components/peer"
 	"github.com/IBM-Blockchain/fabric-deployer/deployer/components/peer/api"
 	"github.com/IBM-Blockchain/fabric-deployer/deployer/components/peer/mocks"
-	v2peer "github.com/IBM-Blockchain/fabric-operator/api/peer/v2"
 	current "github.com/IBM-Blockchain/fabric-operator/api/v1beta1"
+	v2peer "github.com/IBM-Blockchain/fabric-operator/pkg/apis/peer/v2"
 )
 
 var _ = Describe("Patch API", func() {
@@ -73,10 +73,6 @@ var _ = Describe("Patch API", func() {
 				},
 				Resources: &cfg.Resources{
 					Peer: &current.PeerResources{
-						DinD: &corev1.ResourceRequirements{
-							Requests: res,
-							Limits:   res,
-						},
 						Peer: &corev1.ResourceRequirements{
 							Requests: res,
 							Limits:   res,
@@ -86,10 +82,6 @@ var _ = Describe("Patch API", func() {
 							Limits:   res,
 						},
 						GRPCProxy: &corev1.ResourceRequirements{
-							Requests: res,
-							Limits:   res,
-						},
-						FluentD: &corev1.ResourceRequirements{
 							Requests: res,
 							Limits:   res,
 						},

@@ -13,11 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
 */
-import { SkeletonText, Toggle } from 'carbon-components-react';
+import { SkeletonText, Toggle } from "@carbon/react";
 import _ from 'lodash';
 import PropTypes from 'prop-types';
 import React, { Component } from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import { promisify } from 'util';
 import { updateState } from '../../redux/commonActions';
@@ -33,6 +33,7 @@ import SidePanelWarning from '../SidePanelWarning/SidePanelWarning';
 import TranslateLink from '../TranslateLink/TranslateLink';
 import Wizard from '../Wizard/Wizard';
 import WizardStep from '../WizardStep/WizardStep';
+import RenderParamHTML from "../RenderHTML/RenderParamHTML";
 
 const naturalSort = require('javascript-natural-sort');
 
@@ -190,7 +191,7 @@ class ConnectionProfileModal extends Component {
 			};
 
 			let filename = this.props.msp.msp_id + '_profile.json';
-			let file = JSON.stringify(profile, null, 4);
+			let file = JSON.stringify(profile, null, '\t');
 			const createTarget = document.querySelector('.side__panel--outer--container') || document.body;
 			let link = document.createElement('a');
 			if (link.download !== undefined) {
@@ -211,8 +212,8 @@ class ConnectionProfileModal extends Component {
 	renderSelectCA(translate) {
 		let include_ca = translate('connection_profile_include_ca');
 		if (this.props.selectedCA) {
-			include_ca = translate('connection_profile_include_ca_2', {
-				ca: <span className="ibp-ca-name">{this.props.selectedCA.display_name}</span>,
+			include_ca = RenderParamHTML(translate, 'connection_profile_include_ca_2', {
+				ca: <span className="ibp-ca-name">{this.props.selectedCA.display_name}</span>
 			});
 		}
 		return (
@@ -245,7 +246,7 @@ class ConnectionProfileModal extends Component {
 											includeCA: !this.props.includeCA,
 										});
 									}}
-									onChange={() => {}}
+									onChange={() => { }}
 									aria-label={translate('connection_profile_include_ca')}
 									labelA={translate('no')}
 									labelB={translate('yes')}
@@ -324,7 +325,7 @@ class ConnectionProfileModal extends Component {
 		channels = channels
 			? channels.sort((a, b) => {
 				return naturalSort(a, b);
-			  })
+			})
 			: [];
 		this.props.updateState(SCOPE, {
 			channelData: this.props.channelData,
@@ -464,7 +465,7 @@ class ConnectionProfileModal extends Component {
 	}
 
 	render() {
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		return (
 			<Wizard
 				title="create_connection_profile"
@@ -500,7 +501,7 @@ ConnectionProfileModal.propTypes = {
 	onClose: PropTypes.func,
 	updateState: PropTypes.func,
 	msp: PropTypes.object,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default connect(
@@ -518,4 +519,4 @@ export default connect(
 	{
 		updateState,
 	}
-)(withLocalize(ConnectionProfileModal));
+)(withTranslation()(ConnectionProfileModal));

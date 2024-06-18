@@ -13,20 +13,18 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
 */
-import Add20 from '@carbon/icons-react/lib/add/20';
-import Upload20 from '@carbon/icons-react/lib/upload/20';
-import { Checkbox, Loading, RadioTile, TileGroup, ToggleSmall } from 'carbon-components-react';
+import {Add, Upload} from '@carbon/icons-react';
+import { Checkbox, Loading, RadioTile, TileGroup, Toggle } from "@carbon/react";
 import _ from 'lodash';
 import PropTypes from 'prop-types';
 import React from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
-import Configuration from '../../assets/configuration/configuration.json';
 import { showError, updateState } from '../../redux/commonActions';
 import { CertificateAuthorityRestApi } from '../../rest/CertificateAuthorityRestApi';
 import IdentityApi from '../../rest/IdentityApi';
 import { MspRestApi } from '../../rest/MspRestApi';
-import { isCreatedComponentLocation, NodeRestApi } from '../../rest/NodeRestApi';
+import { NodeRestApi } from '../../rest/NodeRestApi';
 import { OrdererRestApi } from '../../rest/OrdererRestApi';
 import ActionsHelper from '../../utils/actionsHelper';
 import Helper from '../../utils/helper';
@@ -42,6 +40,7 @@ import TranslateLink from '../TranslateLink/TranslateLink';
 import UsageForm from '../UsageForm/UsageForm';
 import Wizard from '../Wizard/Wizard';
 import WizardStep from '../WizardStep/WizardStep';
+import * as constants from '../../utils/constants';
 
 const SCOPE = 'importOrdererModal';
 const Log = new Logger(SCOPE);
@@ -56,7 +55,6 @@ class ImportOrdererModal extends React.Component {
 			loading: false,
 			loadingUsers: false,
 			error: null,
-			location: this.getInitialLocation(),
 			cas: [],
 			msps: [],
 			display_name: null,
@@ -109,21 +107,15 @@ class ImportOrdererModal extends React.Component {
 			mspError: '',
 			caError: '',
 			version: null,
+
+			// default to selecting the deploying component option (if the user has that perm), else default select the import component option
+			add_type: ActionsHelper.canCreateComponent(this.props.userInfo, this.props.feature_flags) ? constants.DEPLOYING : constants.IMPORTING,
 		});
 		this.getOrderers();
 		this.calculateUsageTotals(usageDefaults, 1);
 		if (!this.props.feature_flags.import_only_enabled) {
 			this.getVersions();
 		}
-	}
-
-	getInitialLocation() {
-		// check if import only is enabled first so we don't try to show any saas options to add
-		if (this.props.feature_flags.import_only_enabled) {
-			return Helper.getSupportedPeers()[0];
-		}
-
-		return this.props.feature_flags.saas_enabled ? 'ibm_saas' : Helper.getSupportedPeers()[0];
 	}
 
 	getVersions() {
@@ -349,10 +341,10 @@ class ImportOrdererModal extends React.Component {
 	};
 
 	async onSubmit() {
-		if (isCreatedComponentLocation(this.props.location)) {
-			return this.onCreateSubmit();
+		if (this.props.add_type !== constants.DEPLOYING) {
+			return this.onImportSubmit();
 		}
-		return this.onImportSubmit();
+		return this.onCreateSubmit();
 	}
 
 	getCreateData() {
@@ -427,32 +419,11 @@ class ImportOrdererModal extends React.Component {
 			orderer = await OrdererRestApi.createOrderer(data);
 		} catch (error) {
 			Log.error(`${error}`);
-			let newError = new Error(this.props.translate('error_create_orderer'));
+			let newError = new Error(this.props.t('error_create_orderer'));
 			newError.title = 'error_create_orderer';
 			newError.details = error;
 			throw newError;
 		}
-		try {
-			if (window.trackEvent) {
-				window.trackEvent('Created Object', {
-					objectType: 'Orderer',
-					object:
-						this.props.crn_string && data.display_name
-							? `${this.props.crn_string}fabric-orderer:${Helper.hash_str(data.display_name)}`
-							: Helper.hash_str(data.display_name),
-					tenantId: this.props.CRN.instance_id,
-					accountGuid: this.props.CRN.account_id,
-					milestoneName: 'Create an ordering service',
-					category: `raft-${this.props.raft_nodes}`,
-					environment: data.hsm && data.hsm.label ? 'hsm-enabled' : 'hsm-disabled',
-					url: data.api_url ? data.api_url : '',
-					'user.email': this.props.userInfo.loggedInAs.email,
-				});
-			}
-		} catch (error) {
-			Log.warn(`event tracking failed: ${error}`);
-		}
-
 		const new_orderers = [orderer];
 		if (this.props.identity && this.props.identity.name) {
 			this.associateNewOrderers(new_orderers);
@@ -477,9 +448,6 @@ class ImportOrdererModal extends React.Component {
 		const prefix = 'Importing Orderer:';
 		const importData = [];
 		this.props.data.forEach(orderer => {
-			if (!orderer.location) {
-				orderer.location = this.props.location;
-			}
 			if (orderer.raft_action !== 'ignore') {
 				importData.push(orderer);
 			}
@@ -492,29 +460,6 @@ class ImportOrdererModal extends React.Component {
 			Log.error(`${prefix} failed: ${error}`);
 			throw error;
 		}
-		this.props.data.forEach(json => {
-			try {
-				if (window.trackEvent) {
-					window.trackEvent('Created Object', {
-						objectType: 'Orderer',
-						object:
-							this.props.crn_string && json.display_name
-								? `${this.props.crn_string}fabric-orderer:${Helper.hash_str(json.display_name)}`
-								: Helper.hash_str(json.display_name),
-						category: 'foundational',
-						tenantId: this.props.CRN.instance_id,
-						accountGuid: this.props.CRN.account_id,
-						milestoneName: 'Import ordering service',
-						url: json.grpcwp_url,
-						'meta.region': json.location,
-						'user.email': this.props.userInfo.loggedInAs.email,
-					});
-				}
-			} catch (error) {
-				Log.warn(`${prefix} event tracking failed: ${error}`);
-			}
-		});
-
 		this.onComplete(orderers);
 	}
 
@@ -531,21 +476,12 @@ class ImportOrdererModal extends React.Component {
 		}
 	}
 
-	locationChange = location => {
-		this.props.updateState(SCOPE, {
-			location,
-		});
-	};
-
-	renderChooseLocation(translate) {
-		const supported_orderers = Helper.getSupportedOrderers();
-		if (!this.props.feature_flags.saas_enabled && Configuration.supported_orderers.length === 1) {
-			return;
-		}
+	// render the choose between importing an already running os or deploying a new os
+	renderChooseAddType(translate) {
 		return (
 			<WizardStep type="WizardStep"
 				title={this.props.raftParent ? 'add_orderer_node' : 'add_orderer'}
-				disableSubmit={!this.props.location}
+				disableSubmit={!this.props.add_type}
 			>
 				{this.props.joinChannel && (
 					<div className="ibp-modal-desc">
@@ -557,32 +493,33 @@ class ImportOrdererModal extends React.Component {
 					link="IMPORT_ORDERER_DESC_LINK"
 				/>}
 				<TileGroup
-					name="orderer_locations"
+					name="add_type"
 					className="ibp-orderer-locations"
-					onChange={this.locationChange}
-					valueSelected={this.props.location}
+					onChange={(add_type) => {
+						this.props.updateState(SCOPE, {
+							add_type,
+						});
+					}}
+					valueSelected={this.props.add_type}
 					legend={translate(this.props.raftParent ? 'select_orderer_node_type' : 'select_orderer_type')}
 				>
-					{this.props.feature_flags.saas_enabled && ActionsHelper.canCreateComponent(this.props.userInfo) && (
-						<RadioTile value="ibm_saas"
-							id="ibm_saas"
-							name="orderer_location"
-							className="ibp-orderer-location"
-						>
-							<p>{translate(this.props.raftParent ? 'create_orderer_node' : 'create_orderer')}</p>
-							<Add20 className="ibp-fill-color ibp-import-node-add-icon" />
-						</RadioTile>
-					)}
-					{ActionsHelper.canImportComponent(this.props.userInfo) && (
-						<RadioTile value={supported_orderers[0]}
-							id={supported_orderers[0]}
-							name="orderer_location"
-							className="ibp-orderer-location"
-						>
-							<p>{translate(this.props.raftParent ? 'import_orderer_node' : 'import_orderer')}</p>
-							<Upload20 className="ibp-fill-color ibp-import-node-add-icon" />
-						</RadioTile>
-					)}
+					<RadioTile value={constants.DEPLOYING}
+						id="deploy-id"
+						className="ibp-orderer-location"
+						disabled={!ActionsHelper.canCreateComponent(this.props.userInfo, this.props.feature_flags)}
+					>
+						<p>{translate(this.props.raftParent ? 'create_orderer_node' : 'create_orderer')}</p>
+						<Add size={20} className="ibp-fill-color ibp-import-node-add-icon" />
+					</RadioTile>
+
+					<RadioTile value={constants.IMPORTING}
+						id="import-id"
+						className="ibp-orderer-location"
+						disabled={!ActionsHelper.canImportComponent(this.props.userInfo, this.props.feature_flags)}
+					>
+						<p>{translate(this.props.raftParent ? 'import_orderer_node' : 'import_orderer')}</p>
+						<Upload size={20} className="ibp-fill-color ibp-import-node-add-icon" />
+					</RadioTile>
 				</TileGroup>
 			</WizardStep>
 		);
@@ -590,7 +527,7 @@ class ImportOrdererModal extends React.Component {
 
 	checkForRequirements = () => {
 		return new Promise((resolve, reject) => {
-			if (this.props.location === 'ibm_saas') {
+			if (this.props.add_type === constants.DEPLOYING) {
 				if (!this.props.cas.length && !this.props.third_party_ca) {
 					this.props.updateState(SCOPE, { caError: 'needCADesc' });
 				}
@@ -672,7 +609,7 @@ class ImportOrdererModal extends React.Component {
 		return (
 			<>
 				<Form
-					className="bx--radio-button-group--vertical ibp-accordion-form"
+					className="cds--radio-button-group--vertical ibp-accordion-form"
 					scope={SCOPE}
 					id="importSaasOrdererZone"
 					fields={[
@@ -718,7 +655,7 @@ class ImportOrdererModal extends React.Component {
 	}
 
 	renderZones(translate) {
-		if (this.props.location !== 'ibm_saas') {
+		if (this.props.add_type !== constants.DEPLOYING) {
 			return;
 		}
 		if (!this.props.advanced_config.zone) {
@@ -774,7 +711,7 @@ class ImportOrdererModal extends React.Component {
 						<div>
 							<label className="ibp-form-label">{translate('default_zones')}</label>
 						</div>
-						<ToggleSmall
+						<Toggle size="sm"
 							id="toggle-default-zones"
 							toggled={!this.props.zones.length}
 							onToggle={() => {
@@ -969,7 +906,7 @@ class ImportOrdererModal extends React.Component {
 	}
 
 	renderHSM(translate) {
-		if (this.props.location !== 'ibm_saas') {
+		if (this.props.add_type !== constants.DEPLOYING) {
 			return;
 		}
 		if (this.props.clusterType === 'free') {
@@ -1001,11 +938,10 @@ class ImportOrdererModal extends React.Component {
 	}
 
 	renderOrdererUpload(translate) {
-		const supported_orderers = Helper.getSupportedOrderers();
 		const ignore_list = this.props.ignore_list ? this.props.ignore_list : [];
 		const append_list = this.props.append_list ? this.props.append_list : [];
 		const osnadmin_feats_enabled = (this.props.feature_flags && this.props.feature_flags.osnadmin_feats_enabled);
-		const importing = (this.props.location !== 'ibm_saas');
+		const importing = (this.props.add_type !== constants.DEPLOYING);
 
 		// if you are not appending an orderer, render the sys channel choice
 		// if you are appending an orderer, only render if you do not have a system channel. otherwise forced to use systemless.
@@ -1099,7 +1035,7 @@ class ImportOrdererModal extends React.Component {
 								{this.renderAdvancedCheckboxes(translate)}
 							</div>
 						)}
-						{this.props.location !== 'ibm_saas' && (
+						{this.props.add_type !== constants.DEPLOYING && (
 							<div className={this.props.loading ? 'hidden_section' : ''}>
 								{this.props.raftParent && <ImportantBox text="import_orderer_node_important" />}
 								<JsonInput
@@ -1119,6 +1055,18 @@ class ImportOrdererModal extends React.Component {
 										},
 										{
 											name: 'migrated_from',
+											required: false,
+										},
+										{
+											name: 'imported',
+											required: false,
+										},
+										{
+											name: 'cluster_type',
+											required: false,
+										},
+										{
+											name: 'console_type',
 											required: false,
 										},
 										{
@@ -1247,23 +1195,6 @@ class ImportOrdererModal extends React.Component {
 									fileUploadTooltip="import_orderer_file_tooltip"
 									readOnly={this.props.data && this.props.data.length > 0 && (append_list.length > 0 || ignore_list.length > 0)}
 								/>
-								{supported_orderers.length > 1 && this.props.data && this.props.data.length > 0 && !this.props.data[0].location && (
-									<Form
-										scope={SCOPE}
-										id={SCOPE + '-location'}
-										fields={[
-											{
-												name: 'location',
-												type: 'dropdown',
-												tooltip: 'import_orderer_location_tooltip',
-												options: supported_orderers,
-												translateOptions: true,
-												required: true,
-												label: 'import_orderer_location',
-											},
-										]}
-									/>
-								)}
 								{this.props.data && this.props.data.length > 0 && append_list.length > 0 && (
 									<div>
 										<p className="ibp-import-orderer-list-desc">{translate('import_raft_append')}</p>
@@ -1308,7 +1239,7 @@ class ImportOrdererModal extends React.Component {
 		if (this.props.append_list && this.props.append_list.length > 0) {
 			return;
 		}
-		if (this.props.location !== 'ibm_saas') {
+		if (this.props.add_type !== constants.DEPLOYING) {
 			return;
 		}
 		if (this.props.duplicateMsp) {
@@ -1584,7 +1515,7 @@ class ImportOrdererModal extends React.Component {
 	}
 
 	renderSaasCA(translate) {
-		if (this.props.location !== 'ibm_saas') {
+		if (this.props.add_type !== constants.DEPLOYING) {
 			return;
 		}
 		if (this.props.third_party_ca) {
@@ -1682,7 +1613,7 @@ class ImportOrdererModal extends React.Component {
 	}
 
 	renderTLSThirdPartyCA(translate) {
-		if (this.props.location !== 'ibm_saas') {
+		if (this.props.add_type !== constants.DEPLOYING) {
 			return;
 		}
 		if (!this.props.third_party_ca) {
@@ -1790,7 +1721,7 @@ class ImportOrdererModal extends React.Component {
 	}
 
 	renderSaasSummary(translate) {
-		if (this.props.location !== 'ibm_saas') {
+		if (this.props.add_type !== constants.DEPLOYING) {
 			return;
 		}
 		let default_cpu = this.props.usage_total_cpu;
@@ -1917,7 +1848,7 @@ class ImportOrdererModal extends React.Component {
 					<div>
 						<button
 							id="edit_config_override"
-							className="ibp-ca-action bx--btn bx--btn--tertiary bx--btn--sm"
+							className="ibp-ca-action cds--btn cds--btn--tertiary cds--btn--sm"
 							onClick={() => {
 								const data = this.getCreateData();
 								const config_override = OrdererRestApi.buildConfigOverride(data);
@@ -1983,7 +1914,7 @@ class ImportOrdererModal extends React.Component {
 	}
 
 	renderUsage(translate) {
-		if (this.props.location !== 'ibm_saas') {
+		if (this.props.add_type !== constants.DEPLOYING) {
 			return;
 		}
 		if (this.props.clusterType !== 'paid') {
@@ -2024,14 +1955,14 @@ class ImportOrdererModal extends React.Component {
 		let label = 'add_orderer';
 		if (this.props.raftParent) {
 			label = 'add_orderer_node';
-		} else if (this.props.location === 'ibm_saas' && this.props.clusterType === 'paid') {
+		} else if (this.props.add_type === constants.DEPLOYING && this.props.clusterType === 'paid') {
 			label = label + '_cost';
 		}
 		return label;
 	}
 
 	render() {
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		if (this.props.feature_flags.import_only_enabled) {
 			return (
 				<Wizard onClose={this.props.onClose}
@@ -2048,7 +1979,7 @@ class ImportOrdererModal extends React.Component {
 				onSubmit={() => this.onSubmit()}
 				submitButtonLabel={translate(this.getSubmitButtonLabel())}
 			>
-				{this.renderChooseLocation(translate)}
+				{this.renderChooseAddType(translate)}
 				{this.renderOrdererUpload(translate)}
 				{this.renderZones(translate)}
 				{this.renderSaasCA(translate)}
@@ -2070,7 +2001,6 @@ const dataProps = {
 	error: PropTypes.string,
 	identity: PropTypes.object,
 	identityValid: PropTypes.bool,
-	location: PropTypes.string,
 	display_name: PropTypes.string,
 	cas: PropTypes.array,
 	msps: PropTypes.array,
@@ -2114,6 +2044,7 @@ const dataProps = {
 	version: PropTypes.object,
 	systemless: PropTypes.bool,
 	system_config: PropTypes.string,
+	add_type: PropTypes.string,
 };
 
 ImportOrdererModal.propTypes = {
@@ -2126,7 +2057,7 @@ ImportOrdererModal.propTypes = {
 	raftParent: PropTypes.object,
 	appendingNode: PropTypes.bool,
 	systemChannel: PropTypes.bool,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default connect(
@@ -2146,4 +2077,4 @@ export default connect(
 		showError,
 		updateState,
 	}
-)(withLocalize(ImportOrdererModal));
+)(withTranslation()(ImportOrdererModal));

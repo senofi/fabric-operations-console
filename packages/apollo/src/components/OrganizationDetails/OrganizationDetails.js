@@ -14,11 +14,11 @@
  * limitations under the License.
 */
 
-import { Button, SkeletonText } from 'carbon-components-react';
+import { Button, Row, SkeletonText } from "@carbon/react";
 import _ from 'lodash';
 import PropTypes from 'prop-types';
 import React, { Component } from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import emptyImage from '../../assets/images/empty_nodes.svg';
 import { clearNotifications, showBreadcrumb, showError, showSuccess, updateBreadcrumb, updateState } from '../../redux/commonActions';
@@ -39,6 +39,7 @@ import PageContainer from '../PageContainer/PageContainer';
 import PageHeader from '../PageHeader/PageHeader';
 import PeersComponent from '../Peers/Peers';
 import StickySection from '../StickySection/StickySection';
+import withRouter from '../../hoc/withRouter';
 
 const SCOPE = 'organizationDetails';
 const Log = new Logger(SCOPE);
@@ -224,7 +225,7 @@ class OrganizationDetails extends Component {
 		if (!node.operations_url) {
 			className = 'ibp-node-status-unretrievable';
 		}
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		return status ? (
 			<div className="ibp-node-status-container">
 				<span className={`ibp-node-status ${className}`}
@@ -243,7 +244,7 @@ class OrganizationDetails extends Component {
 	}
 
 	buildNodeTile(node) {
-		const isPatchAvailable = !node.pending && node.isUpgradeAvailable && node.location === 'ibm_saas' && ActionsHelper.canCreateComponent(this.props.userInfo);
+		const isPatchAvailable = !node.pending && node.isUpgradeAvailable && node.location === 'ibm_saas' && ActionsHelper.canCreateComponent(this.props.userInfo, this.props.feature_flags);
 		const associatedMSP = node.msp_id;
 		const tls_root_certs = _.get(node, 'msp.tlsca.root_certs') || [];
 		const admin_certs = _.get(node, 'node_ou.enabled') ? [] : _.get(node, 'msp.component.admin_certs') || [];
@@ -277,52 +278,52 @@ class OrganizationDetails extends Component {
 				}}
 			/>
 		);
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		return (
 			<PageContainer>
-				<div className="ibp-msp-details bx--row">
-					<div className="bx--col-lg-4">
-						<div className="ibp-node-details-panel">
-							<div className="ibp-node-details-header">
-								{mspName && <PageHeader history={this.props.history}
-									headerName={translate('msp_details_title', { mspName: mspName })}
-								/>}
-								{mspNameSkeleton}
-								<StickySection
-									openSettings={type => this.openMSPSettings(type)}
-									details={this.props.details}
-									title="organization"
-									exportNode={() => this.exportMSP()}
-									loading={this.props.loading}
-									groups={this.getStickySectionGroups(translate)}
-									hideRefreshCerts
-									custom={() => {
-										return (
-											<Button
-												id="open-connection-profile"
-												kind="primary"
-												disabled={_.isEmpty(this.props.details)}
-												className="ibp-open-connection-profile"
-												onClick={this.openConnectionProfileModal}
-											>
-												{translate('create_connection_profile')}
-												<span
-													style={{
-														position: 'absolute',
-														right: '1rem',
-													}}
-												>
-													+
-												</span>
-											</Button>
-										);
-									}}
-								/>
-							</div>
-						</div>
+				<Row>
+					{mspName && <PageHeader history={this.props.history}
+						headerName={translate('msp_details_title', { mspName: mspName })}
+					/>}
+					{mspNameSkeleton}
+				</Row>
+				<Row>
+					<div className="ibp-column width-25">
+						<StickySection
+							openSettings={type => this.openMSPSettings(type)}
+							details={this.props.details}
+							title="organization"
+							exportNode={() => this.exportMSP()}
+							loading={this.props.loading}
+							groups={this.getStickySectionGroups(translate)}
+							hideRefreshCerts
+							feature_flags={this.props.feature_flags}
+							userInfo={this.props.userInfo}
+							custom={() => {
+								return (
+									<Button
+										id="open-connection-profile"
+										kind="primary"
+										disabled={_.isEmpty(this.props.details)}
+										className="ibp-open-connection-profile"
+										onClick={this.openConnectionProfileModal}
+									>
+										{translate('create_connection_profile')}
+										<span
+											style={{
+												position: 'absolute',
+												right: '1rem',
+											}}
+										>
+											+
+										</span>
+									</Button>
+								);
+							}}
+						/>
 					</div>
 
-					<div className="bx--col-lg-12">
+					<div className="ibp-column width-75 p-lr-10">
 						{details && this.props.associatedPeers && this.props.associatedPeers.length > 0 && (
 							<div>
 								<p className="ibp-msp-joined-peers">{translate('peers')}</p>
@@ -397,6 +398,20 @@ class OrganizationDetails extends Component {
 							msp={details}
 						/>}
 					</div>
+				</Row>
+				<div className="ibp-msp-details cds-row">
+					<div className="cds--col-lg-4">
+						<div className="ibp-node-details-panel">
+							<div className="ibp-node-details-header">
+
+
+							</div>
+						</div>
+					</div>
+
+					<div className="cds--col-lg-12">
+
+					</div>
 				</div>
 			</PageContainer>
 		);
@@ -423,12 +438,13 @@ OrganizationDetails.propTypes = {
 	showError: PropTypes.func,
 	showSuccess: PropTypes.func,
 	clearNotifications: PropTypes.func,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default connect(
 	state => {
 		let newProps = Helper.mapStateToProps(state[SCOPE], dataProps);
+		newProps['feature_flags'] = state['settings'] ? state['settings']['feature_flags'] : null;
 		newProps['userInfo'] = state['userInfo'] ? state['userInfo'] : null;
 		return newProps;
 	},
@@ -440,4 +456,4 @@ export default connect(
 		updateBreadcrumb,
 		clearNotifications,
 	}
-)(withLocalize(OrganizationDetails));
+)(withTranslation()(withRouter(OrganizationDetails)));

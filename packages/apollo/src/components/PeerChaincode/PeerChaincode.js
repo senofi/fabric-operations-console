@@ -16,7 +16,7 @@
 import _ from 'lodash';
 import PropTypes from 'prop-types';
 import React, { Component } from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import emptyImage from '../../assets/images/empty_installed.svg';
 import { clearNotifications, showError, showSuccess, updateState } from '../../redux/commonActions';
@@ -25,6 +25,7 @@ import Helper from '../../utils/helper';
 import InstallChaincodeModal from '../InstallChaincodeModal/InstallChaincodeModal';
 import ItemContainer from '../ItemContainer/ItemContainer';
 import Logger from '../Log/Logger';
+import ActionsHelper from '../../utils/actionsHelper';
 
 const SCOPE = 'peerChaincode';
 const Log = new Logger(SCOPE);
@@ -140,7 +141,7 @@ class PeerChaincode extends Component {
 	};
 
 	renderCustomTile = data => {
-		return <>{data.legacy && <div className="ibp-channel-chaincode-status">{this.props.translate('legacy_sc')}</div>}</>;
+		return <>{data.legacy && <div className="ibp-channel-chaincode-status">{this.props.t('legacy_sc')}</div>}</>;
 	};
 
 	async downloadChaincode(cc) {
@@ -209,6 +210,7 @@ class PeerChaincode extends Component {
 							text: 'install_chaincode',
 							fn: this.openInstallChaincodeModal,
 							label: 'install_chaincode',
+							disabled: !ActionsHelper.canManageComponent(this.props.userInfo, this.props.feature_flags)
 						},
 					]}
 					disableAddItem={this.props.empty || this.props.parentLoading || this.props.state !== STATES.READY}
@@ -233,7 +235,7 @@ const dataProps = {
 	chaincodes: PropTypes.array,
 	error: PropTypes.object,
 	showInstallChaincodeModal: PropTypes.bool,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 	state: PropTypes.string,
 	installedChaincode: PropTypes.object,
 	empty: PropTypes.bool,
@@ -250,7 +252,10 @@ PeerChaincode.propTypes = {
 
 export default connect(
 	state => {
-		return Helper.mapStateToProps(state[SCOPE], dataProps);
+		let newProps = Helper.mapStateToProps(state[SCOPE], dataProps);
+		newProps['userInfo'] = state['userInfo'] ? state['userInfo'] : null;
+		newProps['feature_flags'] = state['settings'] ? state['settings']['feature_flags'] : null;
+		return newProps;
 	},
 	{
 		updateState,
@@ -258,4 +263,4 @@ export default connect(
 		showSuccess,
 		clearNotifications,
 	}
-)(withLocalize(PeerChaincode));
+)(withTranslation()(PeerChaincode));

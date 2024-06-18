@@ -25,6 +25,7 @@ import ImportOrdererModal from '../ImportOrdererModal/ImportOrdererModal';
 import ItemContainer from '../ItemContainer/ItemContainer';
 import JoinChannelModal from '../JoinChannelModal/JoinChannelModal';
 import Logger from '../Log/Logger';
+import ActionsHelper from '../../utils/actionsHelper';
 
 const SCOPE = 'peerChannels';
 const Log = new Logger(SCOPE);
@@ -174,6 +175,7 @@ class PeerChannels extends Component {
 							{
 								text: 'join_channel',
 								fn: this.joinChannel,
+								disabled: !ActionsHelper.canManageComponent(this.props.userInfo, this.props.feature_flags)
 							},
 						]}
 						disableAddItem={this.props.empty || this.props.joinInProgress}
@@ -212,6 +214,7 @@ const dataProps = {
 	orderers: PropTypes.array,
 	history: PropTypes.object,
 	empty: PropTypes.bool,
+	feature_flags: PropTypes.object
 };
 
 PeerChannels.propTypes = {
@@ -224,7 +227,10 @@ PeerChannels.propTypes = {
 
 export default connect(
 	state => {
-		return Helper.mapStateToProps(state[SCOPE], dataProps);
+		let newProps = Helper.mapStateToProps(state[SCOPE], dataProps);
+		newProps['userInfo'] = state['userInfo'] ? state['userInfo'] : null;
+		newProps['feature_flags'] = state['settings'] ? state['settings']['feature_flags'] : null;
+		return newProps;
 	},
 	{
 		clearNotifications,

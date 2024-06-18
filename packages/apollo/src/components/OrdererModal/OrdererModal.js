@@ -13,14 +13,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
 */
-import { Button, CodeSnippet, Loading, SkeletonText, Toggle, ToggleSmall, Checkbox } from 'carbon-components-react';
+import { Button, CodeSnippet, Loading, SkeletonText, Toggle, Checkbox } from "@carbon/react";
 import _ from 'lodash';
 import parse from 'parse-duration';
 import PropTypes from 'prop-types';
 import React from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
-import { withRouter } from 'react-router-dom';
+// import { withRouter } from 'react-router-dom';
+import withRouter from '../../hoc/withRouter';
 import { promisify } from 'util';
 import { updateState } from '../../redux/commonActions';
 import { CertificateAuthorityRestApi } from '../../rest/CertificateAuthorityRestApi';
@@ -47,6 +48,7 @@ import SidePanelWarning from '../SidePanelWarning/SidePanelWarning';
 import TranslateLink from '../TranslateLink/TranslateLink';
 import Wizard from '../Wizard/Wizard';
 import WizardStep from '../WizardStep/WizardStep';
+import RenderParamHTML from '../RenderHTML/RenderParamHTML';
 const naturalSort = require('javascript-natural-sort');
 
 const bytes = require('bytes');
@@ -56,7 +58,7 @@ const SCOPE = 'ordererModal';
 const Log = new Logger(SCOPE);
 
 class OrdererModal extends React.Component {
-	componentDidMount() {
+	async componentDidMount() {
 		this.props.updateState(SCOPE, {
 			display_name: this.props.orderer.display_name,
 			grpcwp_url: this.props.orderer.grpcwp_url,
@@ -66,6 +68,7 @@ class OrdererModal extends React.Component {
 			update: false,
 			loading: true,
 			channel_loading: false,
+			users_loading: false,
 			channelsWithNode: [],
 			safeChannelsWithNode: [],
 			submitting: false,
@@ -87,7 +90,6 @@ class OrdererModal extends React.Component {
 			saas_ca: null,
 			enroll_id: null,
 			enroll_secret: null,
-			loadingUsers: false,
 			users: [],
 			saas_ca_valid: false,
 			third_party_ca_valid: false,
@@ -111,27 +113,23 @@ class OrdererModal extends React.Component {
 			ignore_del_warning: false,
 		});
 		this.identities = null;
-		this.getCAWithUsers();						// dsh todo why is this always being called
+
+		//  ------------- do common things for all side panels here ------------- //
+		let orderer_details = await OrdererRestApi.getClusterDetails(this.props.orderer.cluster_id, true);
+		this.props.updateState(SCOPE, {
+			orderer_details: orderer_details,
+		});
 
 		try {
-			if (this.props.systemChannel) {
-				this.getChannelsWithNodes();		// legacy way
-			} else {
-				this.loadChannelsOnOSN();			// osn admin way
-			}
-		} catch (e) {
-			this.props.updateState(SCOPE, {
-				channel_loading: false,
-			});
-		}
-
-		try {
-			this.checkNodeStatus();
+			await this.checkNodeStatus();
 		} catch (e) {
 			this.props.updateState(SCOPE, {
 				loading: false,
 			});
 		}
+		//  ------------- ------------------------------------ ------------- //
+
+		this.showAction(this.props.ordererModalType);
 	}
 
 	// load the channels this orderer is on - to find ones its a consenter on and block a delete...
@@ -201,7 +199,7 @@ class OrdererModal extends React.Component {
 		});
 
 		try {
-			allChannels = await OrdererRestApi.getAllChannelNamesFromOrderer(options);
+			allChannels = await OrdererRestApi.getAllChannelNamesFromOrderer(options, this.props.orderer_details);
 		} catch (e) {
 			Log.error('unable to load all channels from orderer', e);
 		}
@@ -211,7 +209,10 @@ class OrdererModal extends React.Component {
 				channel_loading: false,
 			});
 		} else {
-			allChannels.forEach(async channel_id => {
+			// do NOT not use something.forEach(async !!!!
+			// b/c forEach does not block each async await call, the different loops fire at the same time and race conditions occur
+			for (let i in allChannels) {
+				const channel_id = allChannels[i];
 				let block_options = {
 					ordererId: options.ordererId,
 					channelId: channel_id,
@@ -221,7 +222,7 @@ class OrdererModal extends React.Component {
 					channel_loading: true,
 				});
 				try {
-					const block = await OrdererRestApi.getChannelConfigBlock(block_options);
+					const block = await OrdererRestApi.getChannelConfigBlock(block_options, this.props.orderer_details);
 					const _block_binary2json = promisify(ChannelApi._block_binary2json);
 					const resp = await _block_binary2json(block, options.configtxlator_url);
 					let l_consenters = _.get(resp, 'data.data[0].payload.data.config.channel_group.groups.Orderer.values.ConsensusType.value.metadata.consenters', []);
@@ -260,9 +261,8 @@ class OrdererModal extends React.Component {
 				this.props.updateState(SCOPE, {
 					channel_loading: false,
 				});
-			});
+			}
 		}
-
 		this.props.updateState(SCOPE, {
 			channel_loading: false,
 		});
@@ -292,8 +292,8 @@ class OrdererModal extends React.Component {
 			loading: true,
 		});
 		let components = {};
+		let orderer = this.props.orderer_details;
 
-		let orderer = await OrdererRestApi.getClusterDetails(this.props.orderer.cluster_id);
 		if (_.has(orderer, 'raft')) {
 			orderer.raft.forEach(x => {
 				components[x.id] = {
@@ -305,8 +305,14 @@ class OrdererModal extends React.Component {
 				skip_cache: true,
 			};
 		}
+
+		let statuses = null;
 		try {
-			let statuses = await RestApi.post('/api/v2/components/status', { components });
+			statuses = await RestApi.post('/api/v3/components/status', { components });
+		} catch (e) {
+			Log.error(e);
+		}
+		if (statuses) {
 			let notOkList = _.filter(statuses, status => status.status === 'not ok');
 			if (_.size(notOkList) > 0) {
 				const down_nodes = notOkList.map(node => {
@@ -319,16 +325,13 @@ class OrdererModal extends React.Component {
 					down_nodes,
 				});
 			}
-		} catch (e) {
-			Log.error(e);
 		}
-
 		this.props.updateState(SCOPE, {
 			loading: false,
 		});
 	}
 
-	getCAList() {
+	async getCAList() {
 		return new Promise((resolve, reject) => {
 			if (this.props.cas && this.props.cas.length > 0) {
 				Log.debug('CAs from store:', this.props.cas);
@@ -347,48 +350,46 @@ class OrdererModal extends React.Component {
 		});
 	}
 
-	getCAWithUsers() {
-		this.getCAList()
-			.then(cas => {
-				this.props.updateState(SCOPE, {
-					cas,
-				});
-				if (cas.length) {
-					return this.loadUsersFromCA(cas[0]);
+	async getCAWithUsers() {
+		this.props.updateState(SCOPE, {
+			users_loading: true,
+		});
+		try {
+			const cas = await this.getCAList();
+			this.props.updateState(SCOPE, { cas });
+			if (this.props.ordererModalType === 'update_certs') {
+				for (let i in cas) {
+					await this.loadUsersFromCA(cas[i]);
 				}
-			})
-			.catch(error => {
-				Log.error(error);
-			})
-			.finally(() => {
-				this.getIdentities();
-			});
+			}
+		} catch (error) {
+			Log.error(error);
+		}
+
+		await this.loadIdentities();
+		this.props.updateState(SCOPE, {
+			users_loading: false,
+		});
 	}
 
-	loadUsersFromCA(ca) {
-		this.props.updateState(SCOPE, { loadingUsers: true });
-		return CertificateAuthorityRestApi.getUsers(ca)
-			.then(all_users => {
-				const users = [];
-				if (all_users && all_users.length) {
-					all_users.forEach(user => {
-						if (user.type === 'peer') {
-							users.push(user);
-						}
-					});
-				}
-				this.props.updateState(SCOPE, {
-					users,
-					loadingUsers: false,
+	async loadUsersFromCA(ca) {
+		try {
+			const all_users = await CertificateAuthorityRestApi.getUsers(ca);
+			const users = [];
+			if (all_users && all_users.length) {
+				all_users.forEach(user => {
+					if (user.type === 'peer') {		// dsh why are we looking for peer on the orderer modal!?
+						users.push(user);
+					}
 				});
-			})
-			.catch(error => {
-				Log.error(error);
-				this.props.updateState(SCOPE, {
-					users: [],
-					loadingUsers: false,
-				});
+			}
+			this.props.updateState(SCOPE, { users });
+		} catch (error) {
+			Log.error(error);
+			this.props.updateState(SCOPE, {
+				users: [],
 			});
+		};
 	}
 
 	getIdentityFromName(name) {
@@ -402,8 +403,9 @@ class OrdererModal extends React.Component {
 		}
 		return id;
 	}
-	async getApplicableIdentities() {
-		const keys = Object.keys(this.props.associatedIdentities);
+
+	async getApplicableIdentities(associatedIdentities) {
+		const keys = Object.keys(associatedIdentities);
 		let valid_identities = {};
 		const allOrderers = this.props.orderer.raft ? this.props.orderer.raft : [this.props.orderer];
 		let msp_root_certs = {};
@@ -412,8 +414,10 @@ class OrdererModal extends React.Component {
 			msp_root_certs[orderer.msp_id] = _.get(orderer, 'msp.ca.root_certs');
 			let all_msps = await MspRestApi.getAllMsps();
 			all_msps.forEach(msp => {
-				if (orderer.msp_id === msp.msp_id && _.isEqual(msp_root_certs[orderer.msp_id], msp.root_certs)) {
-					msp_root_certs_intermediate[orderer.msp_id] = msp.intermediate_certs;
+				if (orderer && msp && msp_root_certs) {
+					if (orderer.msp_id === msp.msp_id && _.isEqual(msp_root_certs[orderer.msp_id], msp.root_certs)) {
+						msp_root_certs_intermediate[orderer.msp_id] = msp.intermediate_certs;
+					}
 				}
 			});
 		}
@@ -434,60 +438,50 @@ class OrdererModal extends React.Component {
 		return valid_identities;
 	}
 
-	getIdentities() {
+	async loadIdentities() {
 		this.identities = null;
-		IdentityApi.getIdentities()
-			.then(identities => {
-				const associatedIdentities = {};
-				if (identities.length) {
-					this.identities = identities;
-					if (this.props.orderer && this.props.orderer.raft) {
-						this.props.orderer.raft.forEach(node => {
-							if (associatedIdentities[node.msp_id] === undefined) {
-								associatedIdentities[node.msp_id] = null;
-								if (this.props.orderer.associatedIdentities) {
-									this.props.orderer.associatedIdentities.forEach(identity => {
-										if (identity.msp_id === node.msp_id) {
-											associatedIdentities[node.msp_id] = this.getIdentityFromName(identity.name);
-										}
-									});
+		let identities;
+		try {
+			identities = await IdentityApi.getIdentities();
+		} catch (error) {
+			Log.error('unable to get identities:', error);
+		}
+		const associatedIdentities = {};
+		if (identities && identities.length) {
+			this.identities = identities;
+			if (this.props.orderer && this.props.orderer.raft) {
+				this.props.orderer.raft.forEach(node => {
+					if (associatedIdentities[node.msp_id] === undefined) {
+						associatedIdentities[node.msp_id] = null;
+						if (this.props.orderer.associatedIdentities) {
+							this.props.orderer.associatedIdentities.forEach(identity => {
+								if (identity.msp_id === node.msp_id) {
+									associatedIdentities[node.msp_id] = this.getIdentityFromName(identity.name);
 								}
-							}
-						});
+							});
+						}
 					}
-					if (this.props.orderer && this.props.orderer.pending) {
-						this.props.orderer.pending.forEach(node => {
-							if (associatedIdentities[node.msp_id] === undefined) {
-								associatedIdentities[node.msp_id] = null;
-								if (this.props.orderer.associatedIdentities) {
-									this.props.orderer.associatedIdentities.forEach(identity => {
-										if (identity.msp_id === node.msp_id) {
-											associatedIdentities[node.msp_id] = this.getIdentityFromName(identity.name);
-										}
-									});
+				});
+			}
+			if (this.props.orderer && this.props.orderer.pending) {
+				this.props.orderer.pending.forEach(node => {
+					if (associatedIdentities[node.msp_id] === undefined) {
+						associatedIdentities[node.msp_id] = null;
+						if (this.props.orderer.associatedIdentities) {
+							this.props.orderer.associatedIdentities.forEach(identity => {
+								if (identity.msp_id === node.msp_id) {
+									associatedIdentities[node.msp_id] = this.getIdentityFromName(identity.name);
 								}
-							}
-						});
+							});
+						}
 					}
-				}
-				this.props.updateState(SCOPE, {
-					associatedIdentities,
 				});
-			})
-			.then(() => {
-				this.getApplicableIdentities().then(myIdentities => {
-					this.props.updateState(SCOPE, {
-						applicableIdentities: myIdentities,
-						loading: false,
-					});
-				});
-			})
-			.catch(error => {
-				Log.error(error);
-			})
-			.finally(() => {
-				this.getAvailableCapabilities();
-			});
+			}
+		}
+		this.props.updateState(SCOPE, {
+			associatedIdentities,
+			applicableIdentities: await this.getApplicableIdentities(associatedIdentities),
+		});
 	}
 
 	isAll20Nodes = () => {
@@ -518,14 +512,13 @@ class OrdererModal extends React.Component {
 			this.props.updateState(SCOPE, {
 				availableChannelCapabilities,
 				availableOrdererCapabilities,
-				loading: false,
 			});
 		}
 	};
 
 	populateBlockParams() {
 		this.props.updateState(SCOPE, { advanced_loading: true });
-		OrdererRestApi.getSystemChannelConfig(this.props.ordererId, this.props.configtxlator_url)
+		OrdererRestApi.getSystemChannelConfig({ cluster_id: this.props.orderer.cluster_id }, this.props.configtxlator_url)
 			.then(resp => {
 				this.props.updateState(SCOPE, {
 					absolute_max_bytes: _.get(resp, 'channel_group.groups.Orderer.values.BatchSize.value.absolute_max_bytes'),
@@ -549,9 +542,10 @@ class OrdererModal extends React.Component {
 			});
 	}
 
-	populateMaintenanceMode() {
+	// figure out if maintenance mode is currently on or off
+	getMaintenanceModeState() {
 		this.props.updateState(SCOPE, { advanced_loading: true });
-		OrdererRestApi.getSystemChannelConfig(this.props.ordererId, this.props.configtxlator_url)
+		OrdererRestApi.getSystemChannelConfig({ cluster_id: this.props.orderer.cluster_id }, this.props.configtxlator_url)
 			.then(resp => {
 				let channel_state = _.get(resp, 'channel_group.groups.Orderer.values.ConsensusType.value.state');
 				let maintenance_mode = (channel_state === 'STATE_MAINTENANCE');
@@ -676,26 +670,6 @@ class OrdererModal extends React.Component {
 		// todo shouldn't be this component's job.  The OrdererDetails component should already know that he should refresh his information.
 		this.onComplete(ordererList);
 
-		if (window.trackEvent && this.props.orderer.location === 'ibm_saas') {
-			try {
-				window.trackEvent('Deleted Object', {
-					objectType: 'Orderer',
-					object:
-						this.props.crn_string && this.props.orderer.cluster_id
-							? `${this.props.crn_string}fabric-orderer:${Helper.hash_str(this.props.orderer.cluster_id)}`
-							: Helper.hash_str(this.props.orderer.display_name),
-					category: 'foundational',
-					tenantId: this.props.CRN.instance_id,
-					accountGuid: this.props.CRN.account_id,
-					milestoneName: 'Delete an ordering service',
-					url: this.props.orderer.grpcwp_url,
-					'user.email': this.props.userInfo.loggedInAs.email,
-				});
-			} catch (error) {
-				Log.warn(`${prefix} event tracking failed: ${error}`);
-			}
-		}
-
 		// todo this page-altering logic should be in the OrdererDetails component.  This component is making assumptions about where it lives
 		let cluster_still_valid = false;
 		if (this.props.orderer.cluster_id) {
@@ -739,14 +713,55 @@ class OrdererModal extends React.Component {
 			});
 	};
 
+	// show the side panel for this action
 	async showAction(action) {
-		if (action === 'log_settings') {
-			this.getLogSettings();
-		}
 		this.props.updateState(SCOPE, {
 			action_in_progress: this.props.ordererModalType,
 			ordererModalType: action,
 		});
+
+		// only call functions we need for that specific side panel
+		switch (action) {
+			case 'delete':
+			case 'force_delete':
+				try {
+					if (this.props.systemChannel) {
+						await this.getChannelsWithNodes();		// legacy way
+					} else {
+						await this.loadChannelsOnOSN();			// osn admin way
+					}
+				} catch (e) {
+					this.props.updateState(SCOPE, {
+						channel_loading: false,
+					});
+				}
+				break;
+			case 'associate':
+			case 'update_certs':
+			case 'manage_certs':
+				this.getCAWithUsers();
+				break;
+			case 'capabilities':
+				this.getAvailableCapabilities();
+				break;
+			case 'channel_maintenance':
+				this.getMaintenanceModeState();
+				break;
+			//case 'config_override':
+			case 'advanced':
+				this.populateBlockParams();
+				break;
+			//case 'restart':
+			case 'log_settings':
+				this.getLogSettings();
+				break;
+			//case 'upgrade':
+			//case 'restart':
+			//case 'manage_hsm':
+			//case 'enable_hsm':
+			//case 'update_hsm':
+			//case 'remove_hsm':
+		}
 	}
 
 	hideAction = () => {
@@ -775,8 +790,7 @@ class OrdererModal extends React.Component {
 			);
 		}
 		const buttons = [];
-		const saas = this.props.orderer.location === 'ibm_saas' && ActionsHelper.canCreateComponent(this.props.userInfo);
-		if (saas) {
+		if (!Helper.is_imported(this.props.orderer) && ActionsHelper.canCreateComponent(this.props.userInfo, this.props.feature_flags)) {
 			if (this.props.clusterType !== 'free') {
 				buttons.push({
 					id: 'edit_config_override',
@@ -827,15 +841,8 @@ class OrdererModal extends React.Component {
 					<button
 						id={button.id}
 						key={button.id}
-						className="ibp-ca-action bx--btn bx--btn--tertiary bx--btn--sm"
+						className="ibp-ca-action cds--btn cds--btn--tertiary cds--btn--sm"
 						onClick={() => {
-							/*if (button) {
-								// dsh todo - move things out...
-								if (button.id === 'update_certs') {
-									this.getCAWithUsers();
-								}
-							}*/
-
 							if (button.onClick) {
 								button.onClick();
 							} else {
@@ -903,34 +910,26 @@ class OrdererModal extends React.Component {
 								kind="secondary"
 								className="ibp-orderer-action"
 								onClick={() => {
-									this.populateBlockParams();
 									this.showAction('advanced');
 								}}
 							>
 								{translate('advanced_orderer_config')}
 							</Button>
-							{this.props.capabilitiesEnabled &&
-								this.props.availableChannelCapabilities &&
-								this.props.availableOrdererCapabilities &&
-								(this.props.availableChannelCapabilities.length > 0 || this.props.availableOrdererCapabilities.length > 0) &&
-								(
-									<Button
-										id="capabilities"
-										kind="secondary"
-										className="ibp-orderer-action"
-										onClick={() => {
-											this.showAction('capabilities');
-										}}
-									>
-										{translate('channel_capabilities')}
-									</Button>
-								)}
+							{this.props.capabilitiesEnabled && (<Button
+								id="capabilities"
+								kind="secondary"
+								className="ibp-orderer-action"
+								onClick={() => {
+									this.showAction('capabilities');
+								}}
+							>
+								{translate('channel_capabilities')}
+							</Button>)}
 							<Button
 								id="channel_maintenance"
 								kind="secondary"
 								className="ibp-orderer-action"
 								onClick={() => {
-									this.populateMaintenanceMode();
 									this.showAction('channel_maintenance');
 								}}
 							>
@@ -996,7 +995,7 @@ class OrdererModal extends React.Component {
 				/>
 				<div className="ibp-form">
 					<div className="ibp-form-field">
-						<p>
+						<div>
 							<BlockchainTooltip type="definition"
 								tooltipText={translate('config_override_delta')}
 							>
@@ -1005,7 +1004,7 @@ class OrdererModal extends React.Component {
 							<TranslateLink text="config_override_update_orderer"
 								className="ibp-orderer-config-override-desc-with-link"
 							/>
-						</p>
+						</div>
 						<p className="ibp-form-input">
 							<ConfigOverride
 								id="ibp-config-override"
@@ -1027,9 +1026,10 @@ class OrdererModal extends React.Component {
 		this.props.updateState(SCOPE, {});
 	};
 
-	updateAdvancedConfig = (resolve, reject) => {
+	// update the orderer services block parameters
+	updateBlockParams = (resolve, reject) => {
 		const payload = {
-			ordererId: this.props.ordererId,
+			cluster_id: this.props.orderer.cluster_id,
 			configtxlator_url: this.props.configtxlator_url,
 			block_params: {
 				absolute_max_bytes: parseInt(this.props.absolute_max_bytes),
@@ -1068,18 +1068,18 @@ class OrdererModal extends React.Component {
 
 	updateCapabilities = (resolve, reject) => {
 		const payload = {
-			ordererId: this.props.ordererId,
+			cluster_id: this.props.orderer.cluster_id,
 			configtxlator_url: this.props.configtxlator_url,
 			capabilities: {
 				orderer:
-					this.props.selectedOrdererCapability && typeof this.props.selectedOrdererCapability === 'object' ? [this.props.selectedOrdererCapability.id] : null,
+					this.props.selectedOrdererCapability && this.props.selectedOrdererCapability.id !== 'select_capability' ? [this.props.selectedOrdererCapability.id] : null,
 				channel:
-					this.props.selectedChannelCapability && typeof this.props.selectedChannelCapability === 'object' ? [this.props.selectedChannelCapability.id] : null,
+					this.props.selectedChannelCapability && this.props.selectedChannelCapability.id !== 'select_capability' ? [this.props.selectedChannelCapability.id] : null,
 			},
 		};
-
 		OrdererRestApi.updateAdvancedConfig(payload)
 			.then(resp => {
+				Log.debug('updated capabilities, received response:', resp);
 				this.props.onComplete();
 				resolve();
 			})
@@ -1100,7 +1100,7 @@ class OrdererModal extends React.Component {
 
 	updateChannelMaintenance = (resolve, reject) => {
 		const payload = {
-			ordererId: this.props.ordererId,
+			cluster_id: this.props.orderer.cluster_id,
 			configtxlator_url: this.props.configtxlator_url,
 			maintenance_mode: this.props.maintenance_mode,
 		};
@@ -1235,7 +1235,7 @@ class OrdererModal extends React.Component {
 				<div className="ibp-remove-orderer-desc">
 					<p>
 						{this.props.orderer.location === 'ibm_saas'
-							? translate(this.props.orderer.cluster_id && !this.props.orderer.raft ? 'delete_orderer_node_desc' : 'delete_orderer_desc', {
+							? RenderParamHTML(translate, this.props.orderer.cluster_id && !this.props.orderer.raft ? 'delete_orderer_node_desc' : 'delete_orderer_desc', {
 								name: (
 									<CodeSnippet
 										type="inline"
@@ -1247,7 +1247,7 @@ class OrdererModal extends React.Component {
 									</CodeSnippet>
 								),
 							})
-							: translate('remove_orderer_desc', {
+							: RenderParamHTML(translate, 'remove_orderer_desc', {
 								name: (
 									<CodeSnippet
 										type="inline"
@@ -1351,6 +1351,7 @@ class OrdererModal extends React.Component {
 	}
 
 	renderAdvanced(translate) {
+		let absolute_max_b = this.props.absolute_max_bytes ? this.props.absolute_max_bytes : bytes(constants.ABSOLUTE_MAX_BYTES_DEFAULT);
 		return (
 			<WizardStep
 				type="WizardStep"
@@ -1370,76 +1371,79 @@ class OrdererModal extends React.Component {
 						{translate('find_more_here')}
 					</a>
 				</p>
-				<Form
-					scope={SCOPE}
-					id={SCOPE + '-advanced'}
-					onChange={data => {
-						if (data.absolute_max_bytes_mb !== undefined) {
-							this.props.updateState(SCOPE, {
-								absolute_max_bytes: Math.floor(data.absolute_max_bytes_mb * 1024 * 1024),
-							});
-						}
-						if (data.timeout_ms !== undefined) {
-							this.props.updateState(SCOPE, {
-								timeout: data.timeout_ms + 'ms',
-							});
-						}
-					}}
-					fields={[
-						{
-							name: 'absolute_max_bytes_mb',
-							label: 'absolute_max_bytes',
-							tooltip: 'absolute_max_bytes_tooltip',
-							tooltipOptions: { absolute_max_bytes_max: constants.ABSOLUTE_MAX_BYTES_MAX },
-							default: this.props.absolute_max_bytes
-								? Math.floor(this.props.absolute_max_bytes / (1024 * 1024))
-								: bytes(constants.ABSOLUTE_MAX_BYTES_DEFAULT) / (1024 * 1024),
-							type: 'slider',
-							min: 0.01,
-							max: bytes(constants.ABSOLUTE_MAX_BYTES_MAX) / (1024 * 1024),
-							step: 0.01,
-							unit: translate('megabyte'),
-							loading: this.props.advanced_loading,
-						},
-						{
-							name: 'max_message_count',
-							default: this.props.max_message_count,
-							tooltip: 'max_message_count_tooltip',
-							tooltipOptions: { max_message_count_min: constants.MAX_MESSAGE_COUNT_MIN, max_message_count_max: constants.MAX_MESSAGE_COUNT_MAX },
-							type: 'slider',
-							min: constants.MAX_MESSAGE_COUNT_MIN,
-							max: constants.MAX_MESSAGE_COUNT_MAX,
-							loading: this.props.advanced_loading,
-						},
-						{
-							name: 'preferred_max_bytes',
-							default: this.props.preferred_max_bytes,
-							placeholder: 'preferred_max_bytes_placeholder',
-							tooltip: 'preferred_max_bytes_tooltip',
-							type: 'slider',
-							min: bytes(constants.PREFERRED_MAX_BYTES_MIN),
-							max: bytes(constants.PREFERRED_MAX_BYTES_MAX),
-							loading: this.props.advanced_loading,
-						},
-						{
-							name: 'timeout_ms',
-							label: 'timeout',
-							tooltip: 'timeout_tooltip',
-							tooltipOptions: { timeout_min: constants.TIMEOUT_MIN, timeout_max: constants.TIMEOUT_MAX },
-							default: this.props.timeout ? parse(this.props.timeout) : undefined,
-							type: 'slider',
-							min: parse(constants.TIMEOUT_MIN),
-							max: parse(constants.TIMEOUT_MAX),
-							unit: translate('millisecond'),
-							loading: this.props.advanced_loading,
-						},
-					]}
-				/>
-				<div className="ibp-error-panel">
-					<SidePanelWarning title="please_note"
-						subtitle="block_params_warning"
+				{this.props.advanced_loading && <Loading withOverlay={false} />}
+				{/*
+					// the input sliders in this form are really picky, they only accept the default number the first time it is rendered
+					// so to get that to work right, we can't render them at all until get the current values from an orderer.
+				*/}
+				{!this.props.advanced_loading && <div>
+
+					<Form
+						scope={SCOPE}
+						id={SCOPE + '-advanced'}
+						onChange={data => {
+							if (data.absolute_max_bytes_mb !== undefined) {
+								this.props.updateState(SCOPE, {
+									absolute_max_bytes: Math.floor(data.absolute_max_bytes_mb * 1024 * 1024),
+								});
+							}
+							if (data.timeout_ms !== undefined) {
+								this.props.updateState(SCOPE, {
+									timeout: data.timeout_ms + 'ms',
+								});
+							}
+						}}
+						fields={[
+							{
+								name: 'absolute_max_bytes_mb',
+								label: 'absolute_max_bytes',
+								tooltip: 'absolute_max_bytes_tooltip',
+								tooltipOptions: { absolute_max_bytes_max: constants.ABSOLUTE_MAX_BYTES_MAX },
+								default: Math.floor(absolute_max_b / (1024 * 1024)),
+								type: 'slider',
+								min: 0.01,
+								max: bytes(constants.ABSOLUTE_MAX_BYTES_MAX) / (1024 * 1024),
+								step: 0.01,
+								unit: translate('megabyte'),
+							},
+							{
+								name: 'max_message_count',
+								default: this.props.max_message_count,
+								tooltip: 'max_message_count_tooltip',
+								tooltipOptions: { max_message_count_min: constants.MAX_MESSAGE_COUNT_MIN, max_message_count_max: constants.MAX_MESSAGE_COUNT_MAX },
+								type: 'slider',
+								min: constants.MAX_MESSAGE_COUNT_MIN,
+								max: constants.MAX_MESSAGE_COUNT_MAX,
+							},
+							{
+								name: 'preferred_max_bytes',
+								default: this.props.preferred_max_bytes,
+								placeholder: 'preferred_max_bytes_placeholder',
+								tooltip: 'preferred_max_bytes_tooltip',
+								type: 'slider',
+								min: bytes(constants.PREFERRED_MAX_BYTES_MIN),
+								max: bytes(constants.PREFERRED_MAX_BYTES_MAX),
+							},
+							{
+								name: 'timeout_ms',
+								label: 'timeout',
+								tooltip: 'timeout_tooltip',
+								tooltipOptions: { timeout_min: constants.TIMEOUT_MIN, timeout_max: constants.TIMEOUT_MAX },
+								default: this.props.timeout ? parse(this.props.timeout) : undefined,
+								type: 'slider',
+								min: parse(constants.TIMEOUT_MIN),
+								max: parse(constants.TIMEOUT_MAX),
+								unit: translate('millisecond'),
+							},
+						]}
 					/>
+					<div className="ibp-error-panel">
+						<SidePanelWarning title="please_note"
+							subtitle="block_params_warning"
+						/>
+					</div>
 				</div>
+				}
 			</WizardStep>
 		);
 	}
@@ -1540,6 +1544,20 @@ class OrdererModal extends React.Component {
 			this.props.currentCapabilities && this.props.currentCapabilities.channel
 				? semver.coerce(this.props.currentCapabilities.channel.replace(/_/g, '.')).version
 				: 'select_capability';
+
+		const currentOrdererCapabilityOpt = {
+			id: this.props.currentCapabilities && this.props.currentCapabilities.orderer
+				? this.props.currentCapabilities.orderer : 'select_capability',
+			name: currentOrdererCapability,
+			value: currentOrdererCapability
+		};
+		const currentChannelCapabilityOpt = {
+			id: this.props.currentCapabilities && this.props.currentCapabilities.orderer
+				? this.props.currentCapabilities.channel : 'select_capability',
+			name: currentChannelCapability,
+			value: currentChannelCapability
+		};
+
 		return (
 			<WizardStep
 				type="WizardStep"
@@ -1566,7 +1584,7 @@ class OrdererModal extends React.Component {
 									type: 'dropdown',
 									tooltip: 'system_channel_orderer_capability_tooltip',
 									options: this.props.availableOrdererCapabilities,
-									default: currentOrdererCapability,
+									default: currentOrdererCapabilityOpt,
 								},
 							]}
 							onChange={data => {
@@ -1585,7 +1603,7 @@ class OrdererModal extends React.Component {
 									type: 'dropdown',
 									tooltip: 'system_channel_channel_capability_tooltip',
 									options: this.props.availableChannelCapabilities,
-									default: currentChannelCapability,
+									default: currentChannelCapabilityOpt,
 								},
 							]}
 							onChange={data => {
@@ -1663,7 +1681,7 @@ class OrdererModal extends React.Component {
 			>
 				<div className="ibp-remove-peer-desc">
 					<p>
-						{translate('upgrade_node_desc', {
+						{RenderParamHTML(translate, 'upgrade_node_desc', {
 							name: (
 								<CodeSnippet
 									type="inline"
@@ -1737,7 +1755,7 @@ class OrdererModal extends React.Component {
 			>
 				<div className="ibp-remove-peer-desc">
 					<p>
-						{translate('confirm_patch_desc', {
+						{RenderParamHTML(translate, 'confirm_patch_desc', {
 							name: (
 								<CodeSnippet
 									type="inline"
@@ -1933,7 +1951,7 @@ class OrdererModal extends React.Component {
 					<div className="ibp-form">
 						<label className="ibp-form-label">{translate('third_party_ca')}</label>
 						<div className="ibp-form-input">
-							<ToggleSmall
+							<Toggle size="sm"
 								id="toggle-third-party-ca"
 								toggled={this.props.third_party_ca}
 								onToggle={() => {
@@ -2007,7 +2025,7 @@ class OrdererModal extends React.Component {
 				<div>
 					<button
 						id="update_hsm_action"
-						className="ibp-orderer-action bx--btn bx--btn--tertiary bx--btn--sm"
+						className="ibp-orderer-action cds--btn cds--btn--tertiary cds--btn--sm"
 						onClick={() => {
 							this.showAction('update_hsm');
 						}}
@@ -2016,7 +2034,7 @@ class OrdererModal extends React.Component {
 					</button>
 					<button
 						id="remove_hsm_action"
-						className="ibp-orderer-action bx--btn bx--btn--sm bx--btn--danger"
+						className="ibp-orderer-action cds--btn cds--btn--sm cds--btn--danger"
 						onClick={() => {
 							this.showAction('remove_hsm');
 						}}
@@ -2050,7 +2068,7 @@ class OrdererModal extends React.Component {
 					await new Promise((resolve, reject) => this.updateHSM(resolve, reject));
 					break;
 				case 'advanced':
-					await new Promise((resolve, reject) => this.updateAdvancedConfig(resolve, reject));
+					await new Promise((resolve, reject) => this.updateBlockParams(resolve, reject));
 					break;
 				case 'capabilities':
 					await new Promise((resolve, reject) => this.updateCapabilities(resolve, reject));
@@ -2390,6 +2408,7 @@ class OrdererModal extends React.Component {
 		});
 		let log_level_identity = null;
 		let log_spec = null;
+		await this.loadIdentities();
 		for (let i = 0; i < this.identities.length && !log_level_identity; i++) {
 			const match = await StitchApi.isIdentityFromRootCert({
 				certificate_b64pem: this.identities[i].cert,
@@ -2491,7 +2510,7 @@ class OrdererModal extends React.Component {
 	}
 
 	render() {
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		return (
 			<Wizard
 				onClose={this.props.onClose}
@@ -2499,7 +2518,7 @@ class OrdererModal extends React.Component {
 				submitButtonLabel={this.getSubmitButtonLabel(translate)}
 				submitButtonId={this.getSubmitButtonId()}
 				error={this.props.error}
-				loading={this.props.loading || this.props.channel_loading}
+				loading={this.props.loading || this.props.channel_loading || this.props.users_loading}
 			>
 				{this.renderPages(translate)}
 			</Wizard>
@@ -2517,6 +2536,7 @@ const dataProps = {
 	maintenance_mode: PropTypes.bool,
 	channel_state: PropTypes.string,
 	channel_loading: PropTypes.bool,
+	users_loading: PropTypes.bool,
 	submitting: PropTypes.bool,
 	channelsWithNode: PropTypes.array,
 	safeChannelsWithNode: PropTypes.array,
@@ -2555,7 +2575,6 @@ const dataProps = {
 	enroll_secret: PropTypes.string,
 	cas: PropTypes.array,
 	users: PropTypes.array,
-	loadingUsers: PropTypes.bool,
 	saas_ca_valid: PropTypes.bool,
 	third_party_ca_valid: PropTypes.bool,
 	saas_ca_private_key: PropTypes.string,
@@ -2575,17 +2594,18 @@ const dataProps = {
 	log_spec: PropTypes.string,
 	new_log_spec: PropTypes.string,
 	ignore_del_warning: PropTypes.bool,
+	orderer_details: PropTypes.object,
 };
 
 OrdererModal.propTypes = {
 	...dataProps,
 	onComplete: PropTypes.func,
 	onClose: PropTypes.func,
-	ordererId: PropTypes.string,
+	clusterId: PropTypes.string,
 	singleNodeRaft: PropTypes.bool,
 	systemChannel: PropTypes.bool,
 	updateState: PropTypes.func,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default withRouter(
@@ -2608,5 +2628,5 @@ export default withRouter(
 		{
 			updateState,
 		}
-	)(withLocalize(OrdererModal))
+	)(withTranslation()(OrdererModal))
 );

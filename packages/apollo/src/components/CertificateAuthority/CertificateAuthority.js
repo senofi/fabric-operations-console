@@ -16,7 +16,7 @@
 import _ from 'lodash';
 import PropTypes from 'prop-types';
 import React, { Component } from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import { clearNotifications, showError, showInfo, showSuccess, updateState } from '../../redux/commonActions';
 import { CertificateAuthorityRestApi } from '../../rest/CertificateAuthorityRestApi';
@@ -127,12 +127,12 @@ export class CertificateAuthority extends Component {
 			return naturalSort(a.name, b.name);
 		});
 		this.props.updateState(SCOPE, { caList });
-		NodeStatus.getStatus(newCAs, SCOPE, 'caList');
+		NodeStatus.getStatus(newCAs, SCOPE, 'caList', null, 50);
 		this.props.clearNotifications('orderers_HELP');
 	};
 
 	buildCustomTile(ca) {
-		const isPatchAvailable = ca.isUpgradeAvailable && ca.location === 'ibm_saas' && ActionsHelper.canCreateComponent(this.props.userInfo);
+		const isPatchAvailable = ca.isUpgradeAvailable && ca.location === 'ibm_saas' && ActionsHelper.canCreateComponent(this.props.userInfo, this.props.feature_flags);
 		let status = ca.status;
 		if (status !== 'stopped' && status !== 'running') {
 			status = 'unknown';
@@ -155,7 +155,7 @@ export class CertificateAuthority extends Component {
 				className = 'ibp-node-status-' + ca.status;
 			}
 		}
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		return ca && ca.status !== undefined ? (
 			<div className="ibp-node-status-container">
 				<span className={`ibp-node-status	${className}`}
@@ -175,13 +175,11 @@ export class CertificateAuthority extends Component {
 
 	getButtons() {
 		let buttons = [];
-		let importOption = ActionsHelper.canImportComponent(this.props.userInfo) || ActionsHelper.canCreateComponent(this.props.userInfo);
-		if (importOption) {
-			buttons.push({
-				text: this.props.feature_flags?.import_only_enabled ? 'import_only_ca' : 'add_ca',
-				fn: this.openImportCAModal,
-			});
-		}
+		buttons.push({
+			text: this.props.feature_flags?.import_only_enabled ? 'import_only_ca' : 'add_ca',
+			fn: this.openImportCAModal,
+			disabled: !ActionsHelper.canImportComponent(this.props.userInfo, this.props.feature_flags) && !ActionsHelper.canCreateComponent(this.props.userInfo, this.props.feature_flags),
+		});
 		return buttons;
 	}
 
@@ -238,7 +236,7 @@ export class CertificateAuthority extends Component {
 									return (
 										<span>
 											<div className={'ibp-table-status ibp-table-status-' + status} />
-											{this.props.translate(status)}
+											{this.props.t(status)}
 										</span>
 									);
 								},
@@ -268,7 +266,7 @@ CertificateAuthority.propTypes = {
 	showInfo: PropTypes.func,
 	showSuccess: PropTypes.func,
 	clearNotifications: PropTypes.func,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 	onCreate: PropTypes.func,
 };
 
@@ -286,4 +284,4 @@ export default connect(
 		showSuccess,
 		updateState,
 	}
-)(withLocalize(CertificateAuthority));
+)(withTranslation()(CertificateAuthority));

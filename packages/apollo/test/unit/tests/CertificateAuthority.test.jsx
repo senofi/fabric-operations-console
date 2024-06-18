@@ -32,6 +32,7 @@ jest.mock('../../../src/utils/actionsHelper', () => {
 	return {
 		canCreateComponent: () => true,
 		canImportComponent: () => true,
+		canManageComponent: () => true,
 	};
 });
 
@@ -133,7 +134,7 @@ describe('CertificateAuthority component', () => {
 			showError: mySandBox.stub(),
 			showSuccess: mySandBox.stub(),
 			updateState: updateStateStub,
-			translate: translateStub,
+			t: translateStub,
 		};
 	});
 

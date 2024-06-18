@@ -13,10 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
 */
-import { CodeSnippet } from 'carbon-components-react';
+import { CodeSnippet } from "@carbon/react";
 import PropTypes from 'prop-types';
 import React from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import { updateState } from '../../redux/commonActions';
 import { CertificateAuthorityRestApi } from '../../rest/CertificateAuthorityRestApi';
@@ -26,6 +26,7 @@ import Form from '../Form/Form';
 import Logger from '../Log/Logger';
 import Wizard from '../Wizard/Wizard';
 import WizardStep from '../WizardStep/WizardStep';
+import RenderParamHTML from '../RenderHTML/RenderParamHTML';
 
 const SCOPE = 'deleteCAModal';
 const Log = new Logger(SCOPE);
@@ -62,7 +63,7 @@ class DeleteCAUserModal extends React.Component {
 			>
 				<div className="ibp-remove-ca-user-desc">
 					<p>
-						{translate('remove_ca_user_desc', {
+						{RenderParamHTML(translate, 'remove_ca_user_desc', {
 							enroll_id: (
 								<CodeSnippet
 									type="inline"
@@ -99,7 +100,7 @@ class DeleteCAUserModal extends React.Component {
 	}
 
 	render() {
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		return (
 			<Wizard
 				onClose={this.props.onClose}
@@ -126,7 +127,7 @@ DeleteCAUserModal.propTypes = {
 	onComplete: PropTypes.func,
 	onClose: PropTypes.func,
 	updateState: PropTypes.func,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default connect(
@@ -136,4 +137,4 @@ export default connect(
 	{
 		updateState,
 	}
-)(withLocalize(DeleteCAUserModal));
+)(withTranslation()(DeleteCAUserModal));

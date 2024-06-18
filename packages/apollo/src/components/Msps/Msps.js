@@ -29,6 +29,7 @@ import Logger from '../Log/Logger';
 import MSPDefinitionModal from '../MSPDefinitionModal/MSPDefinitionModal';
 import PageContainer from '../PageContainer/PageContainer';
 import PageHeader from '../PageHeader/PageHeader';
+import withRouter from '../../hoc/withRouter';
 
 const SCOPE = 'msps';
 const Log = new Logger(SCOPE);
@@ -109,12 +110,13 @@ class Msps extends Component {
 	};
 
 	buildCustomTile(msp) {
+		const node_ou = Helper.node_ou_is_enabled(msp);
 		return (
 			<div>
 				<div>
 					<p className="ibp-node-msp-tile-name-sub">{msp.msp_id}</p>
 					<ItemTileLabels certificateWarning={msp.certificateWarning}
-						nodeOU={_.get(msp, 'fabric_node_ous.enable', false)}
+						nodeOU={node_ou}
 					/>
 				</div>
 			</div>
@@ -123,85 +125,84 @@ class Msps extends Component {
 
 	getButtons() {
 		let buttons = [];
-		if (ActionsHelper.canCreateComponent(this.props.userInfo)) {
-			buttons.push({
-				id: 'create_msp_definition',
-				text: 'create_msp_definition',
-				fn: this.createMSP,
-				icon: 'plus',
-			});
-		}
+		buttons.push({
+			id: 'create_msp_definition',
+			text: 'create_msp_definition',
+			fn: this.createMSP,
+			icon: 'plus',
+			disabled: !ActionsHelper.canCreateComponent(this.props.userInfo, this.props.feature_flags)
+		});
 
-		if (ActionsHelper.canImportComponent(this.props.userInfo)) {
-			buttons.push({
-				id: 'import_msp_definition_button',
-				text: 'import_msp_definition',
-				fn: this.importMSP,
-				icon: 'import',
-			});
-		}
+		buttons.push({
+			id: 'import_msp_definition_button',
+			text: 'import_msp_definition',
+			fn: this.importMSP,
+			icon: 'import',
+			disabled: !ActionsHelper.canImportComponent(this.props.userInfo, this.props.feature_flags)
+		});
+
 		return buttons;
 	}
 	render() {
 		return (
 			<PageContainer>
-				<div className="bx--row">
-					<div className="bx--col-lg-13">
-						<PageHeader
-							history={this.props.history}
-							headerName="msp_heading"
-							staticHeader
-						/>
-						<div id="msps-container"
-							className="ibp__msps--container"
-						>
-							<ItemContainer
-								containerTitle="available_msps"
-								containerTooltip="msp_heading_tooltip"
-								tooltipDirection="right"
-								emptyImage={emptyImage}
-								emptyTitle="empty_msps_title"
-								emptyMessage="empty_msps_text"
-								id="msps--add--tile"
-								itemId="msps"
-								isLink
-								loading={this.props.loading}
-								items={this.props.msps}
-								select={this.openMspDetails}
-								tileMapping={{
-									title: 'display_name',
-									custom: data => {
-										return this.buildCustomTile(data);
-									},
-								}}
-								listMapping={[
-									{
-										header: 'msp_name',
-										attr: 'display_name',
-									},
-									{
-										header: 'msp_id',
-										attr: 'msp_id',
-									},
-								]}
-								widerTiles
-								addItems={this.getButtons()}
-								multiAction
-								maxTilesPerPagination={6}
-								view="variableGrid"
-							/>
-						</div>
-						{this.props.createMSPModal && <GenerateMSPModal onClose={this.hideCreateMSPModal}
-							onComplete={this.onGenerateMspCompleted}
-						/>}
-						{this.props.importMSPModal && (
-							<MSPDefinitionModal onClose={this.hideImportMSPModal}
-								onComplete={this.onImportMspCompleted}
-								mspModalType="settings"
-							/>
-						)}
-					</div>
+				{/* <div className="cds-row">
+					<div className="cds--col-lg-13"> */}
+				<PageHeader
+					history={this.props.history}
+					headerName="msp_heading"
+					staticHeader
+				/>
+				<div id="msps-container"
+					className="ibp__msps--container"
+				>
+					<ItemContainer
+						containerTitle="available_msps"
+						containerTooltip="msp_heading_tooltip"
+						tooltipDirection="right"
+						emptyImage={emptyImage}
+						emptyTitle="empty_msps_title"
+						emptyMessage="empty_msps_text"
+						id="msps--add--tile"
+						itemId="msps"
+						isLink
+						loading={this.props.loading}
+						items={this.props.msps}
+						select={this.openMspDetails}
+						tileMapping={{
+							title: 'display_name',
+							custom: data => {
+								return this.buildCustomTile(data);
+							},
+						}}
+						listMapping={[
+							{
+								header: 'msp_name',
+								attr: 'display_name',
+							},
+							{
+								header: 'msp_id',
+								attr: 'msp_id',
+							},
+						]}
+						widerTiles
+						addItems={this.getButtons()}
+						multiAction
+						maxTilesPerPagination={6}
+						view="variableGrid"
+					/>
 				</div>
+				{this.props.createMSPModal && <GenerateMSPModal onClose={this.hideCreateMSPModal}
+					onComplete={this.onGenerateMspCompleted}
+				/>}
+				{this.props.importMSPModal && (
+					<MSPDefinitionModal onClose={this.hideImportMSPModal}
+						onComplete={this.onImportMspCompleted}
+						mspModalType="settings"
+					/>
+				)}
+				{/* </div>
+				</div> */}
 			</PageContainer>
 		);
 	}
@@ -237,4 +238,4 @@ export default connect(
 		updateState,
 		showSuccess,
 	}
-)(Msps);
+)(withRouter(Msps));

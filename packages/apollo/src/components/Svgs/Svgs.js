@@ -35,6 +35,7 @@ import Error from './Error';
 import Expand from './Expand';
 import FabricNodes from './FabricNodes';
 import Fingerprint from './Fingerprint';
+import Find from './Find';
 import Grid from './Grid';
 import Help from './Help';
 import IbmCloud from './IbmCloud';
@@ -67,7 +68,7 @@ import VisibilityOn from './VisibilityOn';
 import VisibilityOff from './VisibilityOff';
 import Wallet from './Wallet';
 import Warning from './Warning';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 
 class SVGs extends Component {
 	setDimensions(component, translate) {
@@ -116,6 +117,8 @@ class SVGs extends Component {
 				return this.setDimensions(<Download />, translate);
 			case 'fingerprint':
 				return this.setDimensions(<Fingerprint />, translate);
+			case 'find':
+				return this.setDimensions(<Find />, translate);
 			case 'grid':
 				return this.setDimensions(<Grid />, translate);
 			case 'help':
@@ -187,8 +190,8 @@ class SVGs extends Component {
 	}
 
 	render() {
-		const { type, translate } = this.props;
-		return this.selectSVG(type, translate);
+		const { type, t } = this.props;
+		return this.selectSVG(type, t);
 	}
 }
 
@@ -198,7 +201,7 @@ SVGs.propTypes = {
 	type: PropTypes.string,
 	extendClass: PropTypes.object,
 	title: PropTypes.string,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
-export default withLocalize(SVGs);
+export default withTranslation()(SVGs);

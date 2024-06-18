@@ -13,11 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
 */
-import { CodeSnippet, SkeletonPlaceholder } from 'carbon-components-react';
+import { CodeSnippet, SkeletonPlaceholder } from "@carbon/react";
 import _ from 'lodash';
 import PropTypes from 'prop-types';
 import React, { Component } from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import { clearNotifications, showError, updateState } from '../../redux/commonActions';
 import { ChannelParticipationApi } from '../../rest/ChannelParticipationApi';
@@ -30,6 +30,9 @@ import SidePanelWarning from '../SidePanelWarning/SidePanelWarning';
 import { OrdererRestApi } from '../../rest/OrdererRestApi';
 import { NodeRestApi } from '../../rest/NodeRestApi';
 import ImportantBox from '../ImportantBox/ImportantBox';
+import ConfigBlockApi from '../../rest/ConfigBlockApi';
+import { EventsRestApi } from '../../rest/EventsRestApi';
+import RenderParamHTML from '../RenderHTML/RenderParamHTML';
 
 const SCOPE = 'ChannelParticipationUnjoinModal';
 
@@ -40,7 +43,7 @@ class ChannelParticipationUnjoinModal extends Component {
 			this.props.updateState(SCOPE, {
 				loading: true,
 			});
-			OrdererRestApi.getSystemChannelConfig(this.props.details.cluster_id, this.props.configtxlator_url)
+			OrdererRestApi.getSystemChannelConfig({ cluster_id: this.props.details.cluster_id }, this.props.configtxlator_url)
 				.then(resp => {
 					let channel_state = _.get(resp, 'channel_group.groups.Orderer.values.ConsensusType.value.state');
 					this.props.updateState(SCOPE, {
@@ -79,22 +82,65 @@ class ChannelParticipationUnjoinModal extends Component {
 				// TODO: consolidate error handling
 				// cannot remove: system channel exists
 				// cannot remove: channel does not exist
+				let errorStatus = '';
 				if (_.get(unjoinResp, 'error') !== undefined) {
 					this.props.updateState(SCOPE, { error: unjoinResp.error });
+					errorStatus = 'error';
 				} else {
 
+					// update the orderer as systemless
 					if (this.props.channelInfo.systemChannel) {
 						try {
-							// update the orderer as systemless
 							await NodeRestApi.updateNode({ id: osn.id, systemless: true });
 						} catch (e) {
 							console.error(e);
 						}
 					}
 
+					try {
+						// first find all the local config blocks...
+						const local_config_block_docs = await ConfigBlockApi.getAll({ cache: 'skip', visibility: 'all' });
+
+						// filter the docs down to the ones that references this channel
+						if (local_config_block_docs && local_config_block_docs.blocks) {
+							const docs_with_channel = local_config_block_docs.blocks.filter(x => {
+								return x.channel === this.props.channelInfo.name;
+							});
+
+							// filter the docs down to the ones that references this cluster id
+							if (Array.isArray(docs_with_channel)) {
+								const docs_with_OS = docs_with_channel.filter(x => {
+									if (x.extra_consenter_data && osn) {
+										for (let i in x.extra_consenter_data) {			// dsh todo - what if there are other clusters?
+											return x.extra_consenter_data[i]._cluster_id === osn.cluster_id;
+										}
+									}
+									return false;
+								});
+
+								let config_block_doc = null;
+								for (let i in docs_with_OS) {
+									config_block_doc = docs_with_OS[i];
+									break;
+								}
+
+								// if we found the doc then un-archive it since the OS is leaving
+								if (config_block_doc && config_block_doc.id) {
+
+									// un-archive the local config block if one is found
+									await ConfigBlockApi.unarchive(config_block_doc.id, osn.cluster_id);
+									// re-pull all blocks to reload cache
+									await ConfigBlockApi.getAll({ cache: 'skip', visibility: 'all' });
+								}
+							}
+						}
+					} catch (e) {
+						console.error(e);
+					}
 					this.props.onComplete();
 					this.props.onClose();
 				}
+				EventsRestApi.sendUnJoinChannelEvent(this.props.channelInfo.name, this.props.myNodeList, errorStatus);
 			});
 		} catch (e) {
 			//error
@@ -132,7 +178,7 @@ class ChannelParticipationUnjoinModal extends Component {
 						<div className="ibp-modal-title">
 							<h1 className="ibm-light">{this.props.channelInfo.name}</h1>
 							<div className="ibp-remove-orderer-confirm">
-								{translate('remove_orderer_channel_desc', {
+								{RenderParamHTML(translate, 'remove_orderer_channel_desc', {
 									name: (
 										<CodeSnippet
 											type="inline"
@@ -198,7 +244,7 @@ class ChannelParticipationUnjoinModal extends Component {
 	}
 
 	render() {
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		return (
 			<div>
 				<SidePanel
@@ -241,7 +287,7 @@ ChannelParticipationUnjoinModal.propTypes = {
 	...dataProps,
 	onClose: PropTypes.func,
 	onComplete: PropTypes.func,
-	translate: PropTypes.func,
+	t: PropTypes.func,
 };
 
 export default connect(
@@ -255,4 +301,4 @@ export default connect(
 		showError,
 		clearNotifications,
 	}
-)(withLocalize(ChannelParticipationUnjoinModal));
+)(withTranslation()(ChannelParticipationUnjoinModal));

@@ -13,10 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
 */
-import { Button, SkeletonText } from 'carbon-components-react';
+import { Button, Row, SkeletonText } from "@carbon/react";
 import PropTypes from 'prop-types';
 import React, { Component } from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import { clearNotifications, showBreadcrumb, showError, updateState } from '../../redux/commonActions';
 import SettingsApi from '../../rest/SettingsApi';
@@ -28,6 +28,8 @@ import PageHeader from '../PageHeader/PageHeader';
 import ReleaseNotes from '../ReleaseNotes/ReleaseNotes';
 import SVGs from '../Svgs/Svgs';
 import TranslateLink from '../TranslateLink/TranslateLink';
+import ActionsHelper from '../../utils/actionsHelper';
+import withRouter from '../../hoc/withRouter';
 
 const SCOPE = 'comp_settings';
 const Log = new Logger(SCOPE);
@@ -69,12 +71,14 @@ class Support extends Component {
 				const hide_transaction_input = settings.FEATURE_FLAGS.hide_transaction_input;
 				const hide_transaction_output = settings.FEATURE_FLAGS.hide_transaction_output;
 				const mustgather_enabled = settings.FEATURE_FLAGS.mustgather_enabled;
+				const auth_scheme = settings.AUTH_SCHEME;
 				this.props.updateState(SCOPE, {
 					loading: false,
 					settings,
 					hide_transaction_input,
 					hide_transaction_output,
 					mustgather_enabled,
+					auth_scheme,
 				});
 			})
 			.catch(error => {
@@ -112,12 +116,14 @@ class Support extends Component {
 		);
 	}
 
+	// create the support link for the type of console build this is
 	getSupportURL() {
-		let supportURL = 'https://cloud.ibm.com/unifiedsupport/supportcenter';
-		if (this.props.platform && this.props.platform !== 'ibmcloud') {
-			supportURL = 'https://www.ibm.com/mysupport';
+		let supportUrl = 'https://www.ibm.com/docs/en/hlf-support/1.0.0?topic=help-getting-support';
+
+		if (this.props.console_type === 'hlfoc') {
+			supportUrl = 'https://github.com/hyperledger-labs/fabric-operations-console/issues';
 		}
-		return supportURL;
+		return supportUrl;
 	}
 
 	renderSupportSection(translate) {
@@ -127,7 +133,7 @@ class Support extends Component {
 					href={this.getSupportURL()}
 					rel="noopener noreferrer"
 					target="_blank"
-					kind="secondary"
+					kind="primary"
 					role="link"
 				>
 					<div className="support-button-label">{translate('contact_support')}</div>
@@ -140,33 +146,39 @@ class Support extends Component {
 	}
 
 	render = () => {
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		return (
 			<PageContainer>
-				<PageHeader
-					history={this.props.history}
-					headerName="support"
-					staticHeader
-				/>
-				<div className="bx--row">
-					<div className="bx--col-lg-4">
+				<Row>
+					<PageHeader
+						history={this.props.history}
+						headerName="support"
+						staticHeader
+					/>
+				</Row>
+
+				<Row>
+					<div className="ibp-column width-25">
 						<div className="support-left-section">
 							<div className="ibp-support">{this.renderVersionInformation(translate)}</div>
 							<div>
-								<TranslateLink className="ibp-support2"
+								{(this.props.console_type !== 'hlfoc') && <TranslateLink className="ibp-support2"
 									text="contact_support_2"
-								/>
+								/>}
+								{(this.props.console_type === 'hlfoc') && <TranslateLink className="ibp-support2"
+									text="contact_support_3"
+								/>}
 							</div>
 							{this.renderSupportSection(translate)}
-							{this.props.mustgather_enabled && <Mustgather />}
+							{this.props.mustgather_enabled && ActionsHelper.canManageUsers(this.props.userInfo) && <Mustgather />}
 						</div>
 					</div>
-					<div className="bx--col-lg-12">
+					<div className="ibp-column width-75 p-lr-10">
 						<ReleaseNotes loading={this.props.loading}
 							releaseNotes={this.props.releaseNotes}
 						/>
 					</div>
-				</div>
+				</Row>
 			</PageContainer>
 		);
 	};
@@ -181,18 +193,20 @@ const dataProps = {
 	mustgather_enabled: PropTypes.bool,
 	settings: PropTypes.object,
 	userInfo: PropTypes.object,
+	auth_scheme: PropTypes.string,
 };
 
 Support.propTypes = {
 	...dataProps,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default connect(
 	state => {
 		let newProps = Helper.mapStateToProps(state[SCOPE], dataProps);
 		newProps['isAdmin'] = state['settings'].isAdmin;
-		newProps['platform'] = state['settings'].platform;
+		newProps['console_type'] = state['settings'].console_type;
+		newProps['userInfo'] = state['userInfo'] ? state['userInfo'] : null;
 		return newProps;
 	},
 	{
@@ -201,4 +215,4 @@ export default connect(
 		showError,
 		updateState,
 	}
-)(withLocalize(Support));
+)(withTranslation()(withRouter(Support)));

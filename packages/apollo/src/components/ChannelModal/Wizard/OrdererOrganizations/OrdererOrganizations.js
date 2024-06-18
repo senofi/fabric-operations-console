@@ -14,12 +14,12 @@
  * limitations under the License.
 */
 
-import TrashCan20 from '@carbon/icons-react/lib/trash-can/20';
-import { Button, Checkbox } from 'carbon-components-react';
+import {TrashCan} from '@carbon/icons-react';
+import { Button, Checkbox } from "@carbon/react";
 import _ from 'lodash';
 import PropTypes from 'prop-types';
 import React, { Component } from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import { updateState } from '../../../../redux/commonActions';
 import Helper from '../../../../utils/helper';
@@ -27,17 +27,21 @@ import Form from '../../../Form/Form';
 import SidePanelWarning from '../../../SidePanelWarning/SidePanelWarning';
 
 const SCOPE = 'channelModal';
-
+let hasAdmin = false;
 // This is step "channel_orderer_organizations"
 //
 // this panel allows selecting the orderer orgs in the config-block and which one's get the admin role
 // (only used for osn admin nodes)
 export class OrdererOrganizations extends Component {
 	componentDidMount() {
-		this.props.updateState(SCOPE, {
-			noAdminError: 'no_admin_error',
-			noOrderersError: false
-		});
+		if (!hasAdmin)
+		{
+			this.props.updateState(SCOPE, {
+				noAdminError: 'no_admin_error',
+				noOrderersError: false
+			});
+		}
+
 	}
 
 	// user added a new msp/org
@@ -99,7 +103,7 @@ export class OrdererOrganizations extends Component {
 	};
 
 	checkAdminCount(selected_ordering_orgs) {
-		let hasAdmin = false;
+		hasAdmin = false;
 		if (selected_ordering_orgs) {
 			selected_ordering_orgs.forEach(org => {
 				if (org.msp_id !== '' && org.roles.includes('admin')) {
@@ -168,7 +172,7 @@ export class OrdererOrganizations extends Component {
 	};
 
 	render() {
-		const { loading, noAdminError, noOrderersError, duplicateMSPError, msps, ordering_orgs, selectedOrg, missingDefinitionError, isChannelUpdate, translate } = this.props;
+		const { loading, noAdminError, noOrderersError, duplicateMSPError, msps, ordering_orgs, selectedOrg, missingDefinitionError, isChannelUpdate, t: translate } = this.props;
 
 		// hide orgs that are already selected
 		const msp_opts = msps ? msps.filter(x =>
@@ -176,7 +180,7 @@ export class OrdererOrganizations extends Component {
 		) : [];
 
 		return (
-			<div className="ibp-channel-organizations">
+            <div className="ibp-channel-organizations">
 				<p className="ibp-channel-section-title">{translate('channel_orderer_organizations')}</p>
 				<p className="ibp-channel-section-desc">
 					{isChannelUpdate ? translate('update_channel_organization_desc') : translate('create_channel_orderer_org_desc')}
@@ -242,7 +246,7 @@ export class OrdererOrganizations extends Component {
 					{ordering_orgs &&
 						ordering_orgs.map((org, i) => {
 							return (
-								<div key={'org_' + i}
+                                <div key={'org_' + i}
 									className="ibp-add-orgs-table"
 								>
 									<div className="ibp-add-orgs-msp">
@@ -274,20 +278,20 @@ export class OrdererOrganizations extends Component {
 									<Button
 										hasIconOnly
 										type="button"
-										renderIcon={TrashCan20}
+										renderIcon={() => <TrashCan size={20} />}
 										kind="secondary"
 										id={'ibp-remove-org-' + i}
 										iconDescription={translate('remove_msp')}
 										tooltipAlignment="center"
 										tooltipPosition="bottom"
 										className="ibp-add-orgs-remove"
-										size="default"
+										size="lg"
 										onClick={() => {
 											this.onDeleteOrg(i, org.msp_id);
 										}}
 									/>
 								</div>
-							);
+                            );
 						})}
 					{missingDefinitionError && (
 						<div className="ibp-missing-definition-error">
@@ -298,7 +302,7 @@ export class OrdererOrganizations extends Component {
 					)}
 				</div>
 			</div>
-		);
+        );
 	}
 }
 
@@ -323,7 +327,7 @@ const dataProps = {
 OrdererOrganizations.propTypes = {
 	...dataProps,
 	updateState: PropTypes.func,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default connect(
@@ -333,4 +337,4 @@ export default connect(
 	{
 		updateState,
 	}
-)(withLocalize(OrdererOrganizations));
+)(withTranslation()(OrdererOrganizations));

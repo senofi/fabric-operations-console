@@ -14,12 +14,12 @@
  * limitations under the License.
 */
 
-import TrashCan20 from '@carbon/icons-react/lib/trash-can/20';
-import { Button, Checkbox } from 'carbon-components-react';
+import { TrashCan } from '@carbon/icons-react';
+import { Button, Checkbox } from "@carbon/react";
 import _ from 'lodash';
 import PropTypes from 'prop-types';
 import React, { Component } from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import { updateState } from '../../../../redux/commonActions';
 import Helper from '../../../../utils/helper';
@@ -146,7 +146,7 @@ export class Organizations extends Component {
 	};
 
 	render() {
-		const { loading, noOperatorError, duplicateMSPError, msps, orgs, selectedOrg, missingDefinitionError, isChannelUpdate, translate } = this.props;
+		const { loading, noOperatorError, duplicateMSPError, msps, orgs, selectedOrg, missingDefinitionError, isChannelUpdate, t: translate } = this.props;
 		return (
 			<div className="ibp-channel-organizations">
 				<p className="ibp-channel-section-title">{translate('channel_organizations')}</p>
@@ -257,14 +257,14 @@ export class Organizations extends Component {
 									<Button
 										hasIconOnly
 										type="button"
-										renderIcon={TrashCan20}
+										renderIcon={() => <TrashCan size={20} />}
 										kind="secondary"
 										id={'ibp-remove-org-' + i}
 										iconDescription={translate('remove_msp')}
 										tooltipAlignment="center"
 										tooltipPosition="bottom"
 										className="ibp-add-orgs-remove"
-										size="default"
+										size="lg"
 										onClick={() => {
 											this.onDeleteOrg(i, org.msp);
 										}}
@@ -305,7 +305,7 @@ const dataProps = {
 Organizations.propTypes = {
 	...dataProps,
 	updateState: PropTypes.func,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default connect(
@@ -315,4 +315,4 @@ export default connect(
 	{
 		updateState,
 	}
-)(withLocalize(Organizations));
+)(withTranslation()(Organizations));

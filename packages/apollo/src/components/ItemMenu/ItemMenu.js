@@ -13,10 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
 */
-import { Loading, OverflowMenu, OverflowMenuItem } from 'carbon-components-react';
+import { Loading, OverflowMenu, OverflowMenuItem } from "@carbon/react";
 import PropTypes from 'prop-types';
 import React, { Component } from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 
 class ItemMenu extends Component {
 	render() {
@@ -26,7 +26,7 @@ class ItemMenu extends Component {
 				className="ibp-item-menu-loading"
 			/>;
 		}
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		return (
 			<div
 				onKeyDown={event => {
@@ -39,7 +39,7 @@ class ItemMenu extends Component {
 					onClick={event => {
 						event.stopPropagation();
 					}}
-					ariaLabel={translate('actions')}
+					aria-label={translate('actions')}
 				>
 					{this.props.menuItems.map((option, index) => {
 						return (
@@ -51,8 +51,9 @@ class ItemMenu extends Component {
 									event.stopPropagation();
 									option.fn();
 								}}
-								primaryFocus={index === 0}
+								// primaryFocus={index === 0}
 								requireTitle={option.requireTitle ? true : false}
+								disabled={option.disabled === true}
 							/>
 						);
 					})}
@@ -65,7 +66,7 @@ class ItemMenu extends Component {
 ItemMenu.propTypes = {
 	menuItems: PropTypes.array,
 	loading: PropTypes.bool,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
-export default withLocalize(ItemMenu);
+export default withTranslation()(ItemMenu);
