@@ -40,7 +40,7 @@ module.exports = function (logger, ev, t) {
 		}
 
 		const base_url = parts.protocol + '//' + parts.hostname + ':' + parts.port;
-		const valid_url = t.ot_misc.validateUrl(base_url, ev.HOST_WHITE_LIST);	// see if its in our whitelist or not
+		const valid_url = t.ot_misc.validateUrl(base_url, ev.URL_SAFE_LIST);	// see if its in our whitelist or not
 		if (!valid_url) {
 			logger.error('[old proxy] - unsafe url. will not send request to url:', encodeURI(base_url));
 			return cb({ statusCode: 400, response: 'unsafe url. will not send request' });
@@ -59,6 +59,7 @@ module.exports = function (logger, ev, t) {
 				requestCert: true,
 				_name: 'proxy',
 				_max_attempts: 2,
+				_tx_id: req._tx_id,
 			};
 			if (req.body.cert && req.body.key && req.body.ca) {							// accept mutual TLS parameters
 				opts.cert = t.misc.decodeb64(req.body.cert);							// base 64 decode the *client* cert PEM before sending on
@@ -66,7 +67,7 @@ module.exports = function (logger, ev, t) {
 				opts.ca = t.misc.decodeb64(req.body.ca);								// base 64 decode the server TLS PEM before sending on
 			}
 
-			if (opts.url.includes('healthz') || opts.url.includes('cainfo')) {
+			if (opts.url.includes('healthz') || opts.url.includes('cainfo') || opts.url.includes('version')) {
 				opts.timeout = ev.HTTP_STATUS_TIMEOUT;
 				opts._retry_codes = {						// list of codes we will retry
 					'429': '429 rate limit exceeded aka too many reqs',
@@ -104,7 +105,7 @@ module.exports = function (logger, ev, t) {
 	exports.grpc_proxy_proxy_call = (req, cb) => {
 		const parsed = t.ot_misc.parseProxyUrl(req.originalUrl, { default_proto: 'http', prefix: '/grpcwp/' });
 
-		const valid_url = t.ot_misc.validateUrl(parsed.base2use, ev.HOST_WHITE_LIST);	// see if its in our whitelist or not
+		const valid_url = t.ot_misc.validateUrl(parsed.base2use, ev.URL_SAFE_LIST);	// see if its in our whitelist or not
 		if (!valid_url) {
 			logger.error('[grpcwp] - unsafe url. will not send grpcwp request to url:', parsed.base2use);
 			return cb({ statusCode: 400, response: 'unsafe url. will not send grpcwp request' });
@@ -117,13 +118,14 @@ module.exports = function (logger, ev, t) {
 				url: parsed.path2use,
 				body: sanitize_object(req.body),										// body for proxy (plain text)
 				headers: exports.copy_headers(req.headers),
-				timeout: ev.GRPCWPP_TIMEOUT,
+				timeout: get_timeout(req),
 				json: false,
 				encoding: null,
 				rejectUnauthorized: false,												// the whole point of this api is to not verify self signed certs
 				requestCert: true,
 				_name: 'grpcwp',
 				_max_attempts: 1,														// never retry (retry_req is still useful though b/c error formatting)
+				_tx_id: req._tx_id,
 			};
 
 			t.misc.retry_req(opts, (err, resp) => {
@@ -136,7 +138,7 @@ module.exports = function (logger, ev, t) {
 				}
 
 				if (resp && resp.headers) {
-					headers = exports.copy_headers(resp.headers, true);							// copy headers for our response
+					headers = exports.copy_headers(resp.headers, true);					// copy headers for our response
 				}
 				if (!response) {
 					return cb({ headers: headers, statusCode: code });
@@ -167,7 +169,7 @@ module.exports = function (logger, ev, t) {
 			let code = 500;
 			logger.error('[configtxlator proxy route] - unable to contact configtxlator ', error);
 			if (error.toString().indexOf('socket hang up') >= 0) {
-				code = 408;
+				code = 504;
 				logger.error('[configtxlator proxy route] - timeout:', opts.proxyTimeout);
 			}
 			return res.status(code).json({ statusCode: code, msg: error });
@@ -179,7 +181,7 @@ module.exports = function (logger, ev, t) {
 	//--------------------------------------------------
 	exports.ca_proxy_call = (req, cb) => {
 		const parsed = t.ot_misc.parseProxyUrl(req.originalUrl, { default_proto: 'http', prefix: '/caproxy/' });
-		const valid_url = t.ot_misc.validateUrl(parsed.base2use, ev.HOST_WHITE_LIST);	// see if its in our whitelist or not
+		const valid_url = t.ot_misc.validateUrl(parsed.base2use, ev.URL_SAFE_LIST);	// see if its in our whitelist or not
 		if (!valid_url) {
 			logger.error('[ca proxy] - unsafe url. will not send ca request to url:', parsed.base2use);
 			return cb({ statusCode: 400, response: 'unsafe url. will not send ca request' });
@@ -191,13 +193,14 @@ module.exports = function (logger, ev, t) {
 				url: t.misc.safe_url(parsed.path2use),
 				body: (req.method === 'POST' || req.method === 'PUT') ? sanitize_object(req.body) : null,		// body for proxy (send plain text)
 				headers: exports.copy_headers(req.headers),
-				timeout: ev.CA_PROXY_TIMEOUT,
+				timeout: get_timeout(req),
 				json: false,
 				encoding: null,
 				rejectUnauthorized: false,												// the whole point of this api is to not verify self signed certs
 				requestCert: true,
 				_name: 'ca proxy',
 				_max_attempts: 2,
+				_tx_id: req._tx_id,
 			};
 			/* dsh todo, grab tls certs from docs
 			if (req.body.tls_options) {													// optional tls values
@@ -234,7 +237,7 @@ module.exports = function (logger, ev, t) {
 	//--------------------------------------------------
 	exports.proxy_call = (req, cb) => {
 		const parsed = t.ot_misc.parseProxyUrl(req.originalUrl, { default_proto: 'https', prefix: '/proxy/' });
-		const valid_url = t.ot_misc.validateUrl(parsed.base2use, ev.HOST_WHITE_LIST);	// see if its in our whitelist or not
+		const valid_url = t.ot_misc.validateUrl(parsed.base2use, ev.URL_SAFE_LIST);	// see if its in our whitelist or not
 		if (!valid_url) {
 			logger.error('[general proxy] - unsafe url. will not send request to url:', parsed.base2use);
 			return cb({ statusCode: 400, response: 'unsafe url. will not send request' });
@@ -249,13 +252,14 @@ module.exports = function (logger, ev, t) {
 					sanitize_object(req.body) : null,		// body for proxy (send plain text)
 
 				headers: exports.copy_headers(req.headers),
-				timeout: ev.CA_PROXY_TIMEOUT,				// dsh todo change
+				timeout: get_timeout(req),
 				json: false,
 				encoding: null,
 				rejectUnauthorized: false,												// the whole point of this api is to not verify self signed certs
 				requestCert: true,
 				_name: 'general proxy',
 				_max_attempts: 1,
+				_tx_id: req._tx_id,
 			};
 			if (req.headers && req.headers['x-certificate-b64pem'] && req.headers['x-private-key-b64pem']) {	// add mutual TLS parameters
 				opts.cert = t.misc.decodeb64(req.headers['x-certificate-b64pem']);	// base 64 decode the *client* cert PEM before sending on
@@ -269,8 +273,6 @@ module.exports = function (logger, ev, t) {
 				let response = resp ? resp.body : null;
 				let code = t.ot_misc.get_code(resp);
 				let headers;
-
-				//console.log('resp', resp.body ? resp.body.toString() : '-');
 
 				if (!t.ot_misc.is_error_code(code)) {									// errors are logged in retry req()
 					logger.info('[general proxy] - successful proxy response', code);
@@ -287,6 +289,14 @@ module.exports = function (logger, ev, t) {
 			});
 		}
 	};
+
+	// get timeout value to use for this request from client's request, its in the headers
+	function get_timeout(req) {
+		if (req && req.headers && req.headers['x-timeout_ms'] && !isNaN(req.headers['x-timeout_ms'])) {
+			return Number(req.headers['x-timeout_ms']);
+		}
+		return ev.HTTP_TIMEOUT;		// default
+	}
 
 	// copy some headers
 	exports.copy_headers = (headers, response) => {
@@ -357,7 +367,7 @@ module.exports = function (logger, ev, t) {
 				key_src: key_src,
 				cached_ts: Date.now(),								// remember when we stored it
 			};
-			t.proxy_cache.set(key, data2cache, 2 * 60);				// expiration is in sec
+			t.proxy_cache.set(key, data2cache, 90);				// expiration is in sec
 		}
 	};
 

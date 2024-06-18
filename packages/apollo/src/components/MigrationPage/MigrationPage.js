@@ -16,17 +16,17 @@
 
 import PropTypes from 'prop-types';
 import React, { Component } from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation, Trans } from 'react-i18next';
 import { connect } from 'react-redux';
 import { showBreadcrumb, updateState } from '../../redux/commonActions';
 import { MigrationApi } from '../../rest/MigrationApi';
-import { Accordion, AccordionItem, SkeletonText } from 'carbon-components-react';
+import { Accordion, AccordionItem, SkeletonText } from "@carbon/react";
 import Helper from '../../utils/helper';
 import PageContainer from '../PageContainer/PageContainer';
 import Logger from '../Log/Logger';
 import PageHeader from '../PageHeader/PageHeader';
 import UserSettingsRestApi from '../../rest/UserSettingsRestApi';
-import { Button, Checkbox, Loading } from 'carbon-components-react';
+import { Button, Checkbox, Loading } from "@carbon/react";
 import BlockchainTooltip from '../BlockchainTooltip/BlockchainTooltip';
 import SidePanel from '../SidePanel/SidePanel';
 import Form from '../Form/Form';
@@ -34,7 +34,8 @@ import LoginApi from '../../rest/LoginApi';
 import { RestApi } from '../../rest/RestApi';
 import TranslateLink from '../TranslateLink/TranslateLink';
 import * as constants from '../../utils/constants';
-
+import SVGs from '../Svgs/Svgs';
+import withRouter from '../../hoc/withRouter';
 const SCOPE = 'MigrationPage';
 const Log = new Logger(SCOPE);
 
@@ -49,26 +50,52 @@ class MigrationPage extends Component {
 			openSidePanel: false,
 			migFeatureFlagEnabled: false,
 			submitting: false,
-			showProgress: false,
 			showInfo: false,
 			readOnly: true,
 		});
-		await this.getMigrationStatus();
-		console.log('[migration] received overall migration status', this.props.overallMigrationStatus);
-		const userData = await UserSettingsRestApi.getUsersIAMInfo();
-		const settings = await UserSettingsRestApi.getApplicationSettings();
-		console.log('[migration] userData:', userData);
-		this.props.updateState(SCOPE, {
-			userData: userData,
-			loading: false,
-			settings: settings,
-		});
+		try {
+			await this.getMigrationStatus();
+			console.log('[migration] received overall migration status', this.props.overallMigrationStatus);
+		} catch (e) {
+			console.error('[migration] error getting data from status api:');
+			console.error(e);
+		}
+
+		try {
+			const userData = await UserSettingsRestApi.getUsersIAMInfo();
+			console.log('[migration] userData:', userData);
+			this.props.updateState(SCOPE, {
+				userData: userData,
+			});
+		} catch (e) {
+			console.error('[migration] error getting data from user api:');
+			console.error(e);
+			this.props.updateState(SCOPE, {
+				userData: null,
+			});
+		}
+
+		try {
+			const settings = await UserSettingsRestApi.getApplicationSettings();
+			this.props.updateState(SCOPE, {
+				settings: settings,
+				loading: false,
+			});
+		} catch (e) {
+			console.error('[migration] error getting data from settings api:');
+			console.error(e);
+			this.props.updateState(SCOPE, {
+				settings: null,
+				loading: false,
+			});
+		}
 
 		if (this.props.overallMigrationStatus === constants.STATUS_IN_PROGRESS) {
 			this.createPoll();
 		}
 	}
 
+	// get data about the migration status
 	async getMigrationStatus() {
 		let res = null;
 		try {
@@ -81,12 +108,19 @@ class MigrationPage extends Component {
 			});
 		}
 
+		let migrationStatusStr = res ? res.migration_status : '';
+		let migrationAttempted =
+			migrationStatusStr === constants.STATUS_IN_PROGRESS ||
+			migrationStatusStr === constants.STATUS_DONE ||
+			migrationStatusStr === constants.STATUS_FAILED ||
+			migrationStatusStr === constants.STATUS_TIMEOUT;
+
 		this.props.updateState(SCOPE, {
 			componentList: res ? res.components : [],
-			overallMigrationStatus: res ? res.migration_status : '',
+			overallMigrationStatus: migrationStatusStr,
 			migFeatureFlagEnabled: res ? res.migration_enabled : false,
-			showInfo: (res.migration_status === constants.STATUS_IN_PROGRESS || res.migration_status === constants.STATUS_DONE || res.migration_status === constants.STATUS_FAILED
-				|| res.migration_status === constants.STATUS_TIMEOUT) ? false : true,
+			migrationAttempted: migrationAttempted,
+			showInfo: !migrationAttempted,
 			estimateInMins: res ? res.estimate_mins : 15,
 			elapsedMs: res ? res.elapsed_ms : 0,
 			errorMsg: res ? res.error_msg : '',
@@ -95,7 +129,7 @@ class MigrationPage extends Component {
 			exportedWallets: res ? res.wallets : [],
 		});
 
-		if (!res || res.migration_status !== constants.STATUS_IN_PROGRESS) {	// if we aren't in progress, kill the interval
+		if (migrationStatusStr !== constants.STATUS_IN_PROGRESS) {	// if we aren't in progress, kill the interval
 			clearInterval(this.monitorInterval);
 		}
 	}
@@ -208,9 +242,13 @@ class MigrationPage extends Component {
 		let result = null;
 		this.props.updateState(SCOPE, {
 			submitting: true,
+			overallMigrationStatus: '',
+			errorMsg: '',
+			showInfo: false,
 			steps: this.buildStepProgressData(),				// reset local steps
 		});
 
+		let error = null;
 		try {
 			const headers = {
 				'x-iam-token': this.props.userData ? this.props.userData.iamAccessToken : '',
@@ -218,32 +256,62 @@ class MigrationPage extends Component {
 			};
 			const body = {
 				//migration_api_key: 'populated-later',			// filled in later
-				login_username: this.props.userData.loggedInAs.email,
+				login_username: this.props.userData ? this.props.userData.loggedInAs.email : '',
 				login_password: this.props.newConsolePassword
 			};
 			result = await RestApi.post('/api/v3/migration/start', body, headers);
 			console.log('[migration] start migration response', result);
-		} catch (e) {
+		}
+		catch (e) {
 			console.error('[migration] start migration error', e);
+			error = e;
 		}
 
 		this.props.updateState(SCOPE, {
-			submitting: false,
-			openSidePanel: false,
-			overallMigrationStatus: constants.STATUS_IN_PROGRESS,
-			errorMsg: '',
+			submitting: error ? true : false,		// keep spinner on if we errored, wait for error message to be in migrationStatus api
+			openSidePanel: error ? true : false,
+			overallMigrationStatus: error ? constants.STATUS_FAILED : constants.STATUS_IN_PROGRESS,
+			migrationAttempted: true,
 		});
 
-		// poll on the migration status and reflect status on the page
-		this.createPoll();
+		if (error) {								// get error message from migration status api, wait for error to be set
+			setTimeout(async () => {
+				await this.getMigrationStatus();
+				this.props.updateState(SCOPE, {
+					submitting: false,
+					openSidePanel: false,
+				});
+			}, 3 * 1000);
+		}
+
+
+		// if no error, reload the page to reflect the read-only setting that should now be on
+		if (!error) {
+			this.reloadPage();
+		} else {
+			this.createPoll();				// if there was an error setup the poll so we can get the official error and surface it on ui
+			setTimeout(async () => {
+				await this.getMigrationStatus();
+			}, 5 * 1000);
+		}
 	}
 
 	// poll on the migration status and reflect status on the page
-	createPoll() {
+	async createPoll() {
 		clearInterval(this.monitorInterval);
 		this.monitorInterval = setInterval(async () => {
 			await this.getMigrationStatus();
-		}, 10 * 1000);
+		}, 15 * 1000);
+	}
+
+	// reload page to reflect read-only mode
+	reloadPage = () => {
+		this.props.updateState(SCOPE, {
+			loading: true,
+		});
+		setTimeout(() => {
+			window.location.reload();
+		}, 1500);
 	}
 
 	// add leading 'v' like '1.4.5' -> 'v1.4.5
@@ -261,6 +329,22 @@ class MigrationPage extends Component {
 		}
 		return ver;
 	}
+
+	// attempt to build a redhat openshift version from the kubernetes version (this isn't great, but should work short term)
+	/*getOpenShiftVersionFromK8s(k8s_version) {
+		if (typeof k8s_version === 'number') {
+			k8s_version = k8s_version.toString();
+		}
+		if (typeof k8s_version === 'string') {
+			const parts = k8s_version.split('.');
+			if (parts && parts[1]) {
+				const minor = Number(parts[1]);
+				const offset = 13;	// subtract 13 from the k8s minor version number to get to a redhat number, this works so far!
+				return 'v4.' + (minor - offset);
+			}
+		}
+		return 'v4.x';
+	}*/
 
 	// build data that helps build the step progression diagram
 	buildStepProgressData(mig_steps) {
@@ -289,7 +373,7 @@ class MigrationPage extends Component {
 			},
 			{
 				css_class: constants.STEP_NOT_STARTED,
-				txt: 'Migrating wallet',
+				txt: 'Migrate wallet',
 			}
 		];
 
@@ -304,26 +388,45 @@ class MigrationPage extends Component {
 		return steps;
 	}
 
+	// format the min version text from "1.2.4" to "v1.2.3+"
+	formatMinVersion(version) {
+		return 'needs v' + version + '+';
+	}
+
 	// --------------------------------------------------------------------------
 	// Main Migration Content
 	// --------------------------------------------------------------------------
 	render() {
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		const hasMigrationPerm = this.has_migration_permission();
-		let migrationProgress = this.props.overallMigrationStatus;
-		let migrationAttempted = migrationProgress === constants.STATUS_IN_PROGRESS || migrationProgress === constants.STATUS_DONE || migrationProgress === constants.STATUS_FAILED ||
-			migrationProgress === constants.STATUS_TIMEOUT;
+		const migrationStatusStr = this.props.overallMigrationStatus;
 		const minCaVersion = (this.props.settings && this.props.settings.MIGRATION_MIN_VERSIONS) ? this.props.settings.MIGRATION_MIN_VERSIONS['fabric-ca'] : '-';
 		const minPeerVersion = (this.props.settings && this.props.settings.MIGRATION_MIN_VERSIONS) ? this.props.settings.MIGRATION_MIN_VERSIONS['fabric-peer'] : '-';
 		const minOrdererVersion = (this.props.settings && this.props.settings.MIGRATION_MIN_VERSIONS) ? this.props.settings.MIGRATION_MIN_VERSIONS['fabric-orderer'] : '-';
-		const minK8sVersion = (this.props.settings && this.props.settings.MIGRATION_MIN_VERSIONS) ? this.props.settings.MIGRATION_MIN_VERSIONS['kubernetes'] : '-';
+		let minK8sVersion = (this.props.settings && this.props.settings.MIGRATION_MIN_VERSIONS) ? this.props.settings.MIGRATION_MIN_VERSIONS['kubernetes'] : '-';
 		const steps = this.props.steps;
 		const walletStepStatus = (steps && steps[4]) ? steps[4].css_class : '';
+		const usingOpenShift = (this.props.settings && this.props.settings.INFRASTRUCTURE === constants.OPENSHIFT_NAME) ? true : false;
+
+		if (usingOpenShift) {
+			minK8sVersion = (this.props.settings && this.props.settings.MIGRATION_MIN_VERSIONS) ? this.props.settings.MIGRATION_MIN_VERSIONS['openshift'] : '-';
+		}
+
+		// split up the error message into the console part and the jupiter part if we can detect them
+		let console_msg = this.props.errorMsg;
+		let jupiter_msg = '';						// leave blank if we didn't get one or could not parse it
+		if (typeof this.props.errorMsg === 'string') {
+			const pos = this.props.errorMsg.lastIndexOf('Details -');
+			if (pos >= 0) {
+				console_msg = this.props.errorMsg.substring(0, pos);
+				jupiter_msg = this.props.errorMsg.substring(pos);
+			}
+		}
 
 		return (
 			<PageContainer>
-				<div className="bx--row">
-					<div className="bx--col-lg-13 migrationPanel">
+				<div className="cds-row migrationPanel">
+					<div className="cds--col-lg-13">
 						<PageHeader
 							history={this.props.history}
 							headerName="migration"
@@ -361,21 +464,26 @@ class MigrationPage extends Component {
 											</p>
 											<p>{translate('migration_what1')}</p>
 											<br />
-											<br />
-											<p>
+											<div className="leftParagraph">
 												<p><strong>{translate('mig_details_title')}</strong></p>
+												<p>- {translate('migration_details6')}</p>
 												<p>- {translate('migration_details1')}</p>
 												<p>- {translate('migration_details2')}</p>
 												<TranslateLink text="migration_details2.1" />
 												<p>- {translate('migration_details3')}</p>
-												<TranslateLink text="migration_details5" />
 												<p>- {translate('migration_details4')}</p>
+												<TranslateLink text="migration_details5" />
+											</div>
+											<p className="infoTitle">
+												{translate('mig_warnings')}
 											</p>
-
+											<p className="checking_text">{translate('mig_warning_txt')}</p>
+											<br />
+											<p className="checking_text">{translate('mig_warning_txt2')}</p>
 											<p className="infoTitle">
 												{translate('what_prereq_title')}
 											</p>
-											<p>
+											<div className="leftParagraph">
 												{translate('migration_resources1')}
 												&nbsp;<span className="checking_text">
 													{translate('migration_resources2')}
@@ -388,76 +496,98 @@ class MigrationPage extends Component {
 													</strong>
 													&nbsp;- {translate('migration_resources')}
 												</p>
-											</p>
+											</div>
 
 											<br />
 
-											<p>
+											<div className="leftParagraph">
 												<h4>{translate('migration_min_versions_title')}</h4>
 												{translate('migration_min_versions')}
 												<br />
 												<br />
 												<p>
 													<strong>
-														{translate('migration_k8s')}
+														{translate(usingOpenShift ? 'openshift_txt' : 'migration_k8s')}
 													</strong>
-													&nbsp;- v{minK8sVersion}+
+													<p>
+														&nbsp;- {this.formatMinVersion(minK8sVersion)}
+													</p>
 												</p>
 												<p>
 													<strong>
 														{translate('migration_fabric_ca')}
 													</strong>
-													&nbsp;- v{minCaVersion}+
+													<p>
+														&nbsp;- {this.formatMinVersion(minCaVersion)}
+													</p>
 												</p>
 												<p>
 													<strong>
 														{translate('migration_fabric_peer')}
 													</strong>
-													&nbsp;- v{minPeerVersion}+
+													<p>
+														&nbsp;- {translate('migration_fabric_2.2')}
+														&nbsp;- {this.formatMinVersion(minPeerVersion[0])}
+													</p>
+													<p>
+														&nbsp;- {translate('migration_fabric_2.4')}
+														&nbsp;- {this.formatMinVersion(minPeerVersion[1])}
+													</p>
 												</p>
 												<p>
 													<strong>
 														{translate('migration_fabric_orderer')}
 													</strong>
-													&nbsp;- v{minOrdererVersion}+
+													<p>
+														&nbsp;- {translate('migration_fabric_2.2')}
+														&nbsp;- {this.formatMinVersion(minOrdererVersion[0])}
+													</p>
+													<p>
+														&nbsp;- {translate('migration_fabric_2.4')}
+														&nbsp;- {this.formatMinVersion(minOrdererVersion[1])}
+													</p>
 												</p>
-											</p>
+											</div>
 
 											<p className="infoTitle">
 												{translate('how_migrate_title')}
 											</p>
-											<p>
+											<div className="leftParagraph">
 												{translate('migration_start1', { estimate: this.props.estimateInMins })}
 												&nbsp;<span className="checking_text">{translate('migration_start1.1')}</span>
 												{translate('migration_start1.2')}
 
 												<br />
 												<br />
-												<p>
+												<div className="leftParagraph">
 													{translate('migration_start2')}
 													<p>{translate('migration_start_details1')}</p>
 													<p>{translate('migration_start_details2')}</p>
 													<p>{translate('migration_start_details3')}</p>
 													<p>{translate('migration_start_details4')}</p>
 													<p>{translate('migration_start_details5')}</p>
-												</p>
-											</p>
+												</div>
+											</div>
 										</div>
 									</AccordionItem>
 								</Accordion>
 
-								{migrationProgress !== constants.STATUS_DONE &&
+								{migrationStatusStr !== constants.STATUS_DONE &&
 									<div className='migrationWizardModal'>
 										<h3 className="settings-label">
 											<BlockchainTooltip direction="right"
-												triggerText={translate('mig_header1')}
+												triggerText={translate((migrationStatusStr === constants.STATUS_IN_PROGRESS) ? 'mig_header_in_progress' : 'mig_header1')}
 											>
-												{translate('mig_tooltip1')}
+												{translate((migrationStatusStr === constants.STATUS_IN_PROGRESS) ? 'mig_tooltip_in_progress' : 'mig_tooltip1')}
 											</BlockchainTooltip>
 										</h3>
-										{migrationProgress !== constants.STATUS_DONE &&
+										{migrationStatusStr !== constants.STATUS_DONE &&
 											<p>
-												{translate(this.props.migFeatureFlagEnabled ? 'mig_description' : 'mig_description2')}
+												{
+													translate(this.props.migFeatureFlagEnabled ? (
+														migrationStatusStr === constants.STATUS_IN_PROGRESS ? 'mig_description_in_progress' : 'mig_description'
+													) : 'mig_description_disabled')
+												}
 											</p>
 										}
 										<br />
@@ -466,11 +596,16 @@ class MigrationPage extends Component {
 											<Button
 												onClick={this.open_migration}
 												className="ibp-button ibm-label mig-button"
-												disabled={!hasMigrationPerm || migrationProgress === constants.STATUS_IN_PROGRESS || !this.props.migFeatureFlagEnabled
-													|| migrationProgress === constants.STATUS_DONE}
+												disabled={!hasMigrationPerm || migrationStatusStr === constants.STATUS_IN_PROGRESS || !this.props.migFeatureFlagEnabled
+													|| migrationStatusStr === constants.STATUS_DONE}
 											>
-												{translate('review_mig_text')}
-												{migrationProgress === constants.STATUS_IN_PROGRESS &&
+												{translate('mig_button_text')}
+												{migrationStatusStr !== constants.STATUS_IN_PROGRESS &&
+													<SVGs extendClass={{ 'ibp-container-list-add-button-img': true }}
+														type="arrowRight"
+													/>
+												}
+												{migrationStatusStr === constants.STATUS_IN_PROGRESS &&
 													<Loading withOverlay={false}
 														small
 														className="migration-progress-spinner"
@@ -486,7 +621,7 @@ class MigrationPage extends Component {
 									</div>
 								}
 
-								{migrationAttempted && this.props.migFeatureFlagEnabled && !this.props.submitting &&
+								{this.props.migrationAttempted && this.props.migFeatureFlagEnabled && !this.props.submitting &&
 									<div className='progressWrap'>
 										{steps.map((step, i) => {
 											return (
@@ -500,27 +635,31 @@ class MigrationPage extends Component {
 														</div>
 														<div className={'stepDescription'}>{step.txt}</div>
 													</span>
-													{
-														(i < steps.length - 1) &&
-														<span className={'stepLine ' + steps[i + 1].css_class}></span>
+													{(i < steps.length - 1) &&
+														<span className="stepLineWrap">
+															<span className={'stepLine ' + steps[i + 1].css_class}></span>
+															{steps[i + 1].css_class === constants.STEP_IN_PROGRESS &&
+																<span className={'stepLineMotion'}></span>
+															}
+														</span>
 													}
 												</span>
 											);
 										})}
 
-										{!this.props.submitting && <p className='statusSummary'>
-											{migrationProgress === constants.STATUS_TIMEOUT && this.props.migFeatureFlagEnabled &&
+										{!this.props.submitting && <div className='statusSummary'>
+											{migrationStatusStr === constants.STATUS_TIMEOUT && this.props.migFeatureFlagEnabled &&
 												<div className="tinyText">
 													{translate('mig_timed_out')}
 												</div>
 											}
-											{migrationProgress === constants.STATUS_FAILED && this.props.migFeatureFlagEnabled &&
+											{migrationStatusStr === constants.STATUS_FAILED && this.props.migFeatureFlagEnabled &&
 												<div className="tinyText">
 													{translate('mig_error')}
-													<p className="tinyText">{translate('mig_error_msg', { migration_error_msg: this.props.errorMsg })}</p>
+													<p className="tinyText errorTxt">{translate('mig_error_msg', { migration_error_msg: console_msg, jupiter_error_msg: jupiter_msg })}</p>
 												</div>
 											}
-											{migrationProgress === constants.STATUS_IN_PROGRESS && this.props.migFeatureFlagEnabled && walletStepStatus !== constants.STEP_IN_PROGRESS &&
+											{migrationStatusStr === constants.STATUS_IN_PROGRESS && this.props.migFeatureFlagEnabled && walletStepStatus !== constants.STEP_IN_PROGRESS &&
 												<div>
 													<span
 														className="tinyTextWhite"
@@ -530,14 +669,14 @@ class MigrationPage extends Component {
 													</span>
 												</div>
 											}
-											{migrationProgress === constants.STATUS_DONE &&
+											{migrationStatusStr === constants.STATUS_DONE &&
 												<div>
 													{translate('mig_complete')}
 												</div>
 											}
-										</p>}
+										</div>}
 
-										{migrationProgress === constants.STATUS_IN_PROGRESS && this.props.migFeatureFlagEnabled && walletStepStatus === constants.STEP_IN_PROGRESS &&
+										{migrationStatusStr === constants.STATUS_IN_PROGRESS && this.props.migFeatureFlagEnabled && walletStepStatus === constants.STEP_IN_PROGRESS &&
 											<div>
 												{translate('mig_wallet_instructions')}
 											</div>
@@ -545,15 +684,15 @@ class MigrationPage extends Component {
 									</div>
 								}
 
-								{migrationProgress === constants.STATUS_IN_PROGRESS && this.props.migFeatureFlagEnabled && walletStepStatus === constants.STEP_IN_PROGRESS &&
+								{migrationStatusStr === constants.STATUS_IN_PROGRESS && this.props.migFeatureFlagEnabled && walletStepStatus === constants.STEP_IN_PROGRESS &&
 									<div>
 										<h3>{translate('mig_wallet_title')}</h3>
 										<p>{translate('mig_wallet_instructions1.5')}</p>
 										<br />
 										<p>{translate('mig_wallet_instructions2')}</p>
 										<br />
-										<p>{translate('mig_wallet_instructions3')}</p>
-										<p className="leftParagraph">
+										<p><Trans>{translate('mig_wallet_instructions3')}</Trans></p>
+										<div className="leftParagraph">
 											<p className="leftParagraph">
 												- New console: <a href={this.props.newConsoleURL}
 													target="_blank"
@@ -562,15 +701,15 @@ class MigrationPage extends Component {
 													{this.props.newConsoleURL}
 												</a>
 											</p>
-										</p>
+										</div>
 									</div>
 								}
 							</div>
 						}
 					</div>
+					{!this.props.loading && migrationStatusStr === constants.STATUS_DONE && this.props.migFeatureFlagEnabled && this.renderDeleteContent()}
 				</div >
 				{this.props.openSidePanel && this.renderSidePanel()}
-				{!this.props.loading && migrationProgress === constants.STATUS_DONE && this.renderDeleteContent()}
 			</PageContainer >
 		);
 	}
@@ -579,7 +718,7 @@ class MigrationPage extends Component {
 	// Migration wizard
 	// --------------------------------------------------------------------------
 	renderSidePanel() {
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		const hasValidFabricVersions = this.props.hasValidFabricVersions;
 		const hasValidK8s = this.props.hasValidK8s;
 		const hasIamTokens = (this.props.userData && this.props.userData.iamAccessToken && this.props.userData.iamRefreshToken) ? true : false;
@@ -587,10 +726,20 @@ class MigrationPage extends Component {
 		const passwords_good = this.props.newPasswordError === '' && this.props.confirmPasswordError === '';
 		const freeCluster = (this.props.settings && this.props.settings.cluster_data) ? this.props.settings.cluster_data.type === 'free' : false;
 		const valid_preqs = hasValidFabricVersions && hasValidK8s && hasIamTokens && !freeCluster;
+		const usingOpenShift = (this.props.settings && this.props.settings.INFRASTRUCTURE === constants.OPENSHIFT_NAME) ? true : false;
 
 		const deployed_comps = this.props.components ? this.props.components.filter(x => {
 			return !x._imported;
 		}) : [];
+
+		// limit length of node display name, put full name in title
+		const NAME_MAX_LEN = 28;
+		for (let i in deployed_comps) {
+			deployed_comps[i].full_name = deployed_comps[i].display_name;
+			if (deployed_comps[i].display_name.length > NAME_MAX_LEN) {
+				deployed_comps[i].display_name = deployed_comps[i].display_name.substring(0, NAME_MAX_LEN).trim() + '...';
+			}
+		}
 
 		return (
 			<SidePanel
@@ -620,7 +769,7 @@ class MigrationPage extends Component {
 			>
 				<div>
 					<div className="ibp-modal-title">
-						<h1 className="ibm-light">{translate('migration')}</h1>
+						<h1 className="ibm-light">{translate('migration_wiz_title')}</h1>
 					</div>
 
 					{migration_check_loader &&
@@ -651,7 +800,7 @@ class MigrationPage extends Component {
 							<br />
 							{!hasValidK8s &&
 								<div>
-									<p className="errorTxt">{translate('invalid_mig_k8s_version_txt')}</p>
+									<p className="errorTxt">{translate('invalid_mig_k8s_version_txt', { type: usingOpenShift ? 'OpenShift' : 'Kubernetes' })}</p>
 									<br />
 									<p>{translate('invalid_mig_txt')}</p>
 								</div>
@@ -685,42 +834,61 @@ class MigrationPage extends Component {
 					{
 						// -------------------- Migration Version Error Details here --------------------
 					}
-					{!migration_check_loader && !valid_preqs &&
+					{!migration_check_loader && (!hasValidFabricVersions || !hasValidK8s) &&
 						<div className='mig_version_wrap'>
 							<h4>{translate('cluster')}</h4>
-							<div className='mig_version_label'>
-								{translate('migration_node_k8s_version_txt')}
+							<div className='versionRowWrap'>
+								<div className='mig_version_label'>
+									{translate(usingOpenShift ? 'openshift_txt' : 'migration_node_k8s_version_txt')}
+								</div>
+								<div className={'mig_version_value ' + (hasValidK8s ? '' : 'invalidVersionText')}>
+									{this.props.kubernetes ? this.conform_version(this.props.kubernetes.version) : '-'}
+								</div>
+								<div className='mig_min_version_value'>
+									{translate('migration_required_version_txt',
+										{ min: this.props.kubernetes ? this.conform_version(this.props.kubernetes.min_version) : '-' })}
+								</div>
+								{hasValidK8s &&
+									<div className='mig_valid_txt'>
+										{translate('migration_version_valid_txt')}
+									</div>
+								}
 							</div>
-							<div className={'mig_version_value ' + (hasValidK8s ? '' : 'invalidVersionText')}>
-								{this.props.kubernetes ? this.conform_version(this.props.kubernetes.version) : '-'}
-							</div>
-							<div className='mig_min_version_value'>
-								{translate('migration_required_version_txt',
-									{ min: this.props.kubernetes ? this.conform_version(this.props.kubernetes.min_version) : '-' })}
-							</div>
-							<br />
-							<br />
 							<br />
 
 							<h4>{translate('deployed_nodes_title')}</h4>
 							{deployed_comps &&
 								deployed_comps.map((comp, i) => {
 									return (
-										<div key={'comp_' + i}>
-											<div>
-												<div className='mig_version_label'>
-													{comp.display_name} {translate('migration_node_fab_version_txt')}
-												</div>
-												<div className={'mig_version_value ' + (comp._migratable ? '' : 'invalidVersionText')}>
-													{this.conform_version(comp.version)}
-												</div>
-												<div className='mig_min_version_value'>
-													{translate('migration_required_version_txt', { min: comp._min_version ? this.conform_version(comp._min_version) : '-' })}
-												</div>
+										<div
+											key={'comp_' + i}
+											className='versionRowWrap'
+										>
+											<div
+												className='mig_version_label'
+												title={comp.full_name}
+											>
+												{comp.display_name}
 											</div>
+											<div className={'mig_version_value ' + (comp._migratable ? '' : 'invalidVersionText')}>
+												&nbsp;{this.conform_version(comp.version)}
+											</div>
+											<div className='mig_min_version_value'>
+												{translate('migration_required_version_txt', { min: comp._min_version ? this.conform_version(comp._min_version) : '-' })}
+											</div>
+											{comp._migratable &&
+												<div className='mig_valid_txt'>
+													{translate('migration_version_valid_txt')}
+												</div>
+											}
 										</div>
 									);
 								})
+							}
+							{(!deployed_comps || deployed_comps.length === 0) &&
+								<div className='mig_version_label'>
+									{translate('migration_nodes_not_found')}
+								</div>
 							}
 						</div>
 					}
@@ -818,27 +986,29 @@ class MigrationPage extends Component {
 	// Delete service instance instructions/warnings
 	// --------------------------------------------------------------------------
 	renderDeleteContent() {
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		return (
 			<div>
-				<div className="ibp-modal-title">
-					<h3 className="ibm-light">{translate('migration_cleanup')}</h3>
+				<div className="ibp-modal-title twistyContent">
+					<p className="infoTitle">
+						{translate('migration_cleanup')}
+					</p>
 					<br />
 					<p>{translate('mig_complete_txt')}</p>
 					<br />
-					<p>
+					<p className="newConsoleWrap leftParagraphMore">
 						{translate('mig_complete_txt2')}
 						<a href={this.props.newConsoleURL}
 							target="_blank"
 							rel="noreferrer"
 						>
 							{this.props.newConsoleURL}
-						</a>.
+						</a>
 					</p>
 					<br />
-					<p>{translate('mig_warn_txt')}</p>
+					<p><Trans>{translate('mig_warn_txt')}</Trans></p>
 					<br />
-					<p className="leftParagraph">
+					<div className="leftParagraphMore">
 						<h4>{translate('mig_exported_wallets')}</h4>
 						{this.props.exportedWallets.map((wallet, i) => {
 							return (
@@ -846,24 +1016,28 @@ class MigrationPage extends Component {
 									key={'wallet_' + i}
 									className="leftParagraph"
 								>
-									- <span className="checking_text">{wallet.email}</span> - <span className="tinyTextWhite">exported on {new Date(wallet.timestamp).toLocaleDateString()}</span>
+									-&nbsp;<span className="checking_text">{wallet.email}</span>&nbsp;-&nbsp;
+									<span className="tinyTextWhite">
+										{translate('mig_exported_txt')} {new Date(wallet.timestamp).toLocaleDateString()}
+									</span>
 								</p>
 							);
 						})}
-					</p>
+					</div>
+					<br />
+					<p>{translate('mig_users_text')}</p>
 					<br />
 					<p>{translate('mig_test_txt')}</p>
 					<br />
 					<TranslateLink text="mig_delete_txt" />
 				</div>
-			</div>
+			</div >
 		);
 	}
 }
 
 const dataProps = {
 	showInfo: PropTypes.bool,
-	showProgress: PropTypes.bool,
 	migFeatureFlagEnabled: PropTypes.bool,
 	componentList: PropTypes.array,
 	overallMigrationStatus: PropTypes.string,
@@ -888,12 +1062,13 @@ const dataProps = {
 	errorMsg: PropTypes.string,
 	steps: PropTypes.array,
 	exportedWallets: PropTypes.array,
+	migrationAttempted: PropTypes.bool,
 };
 
 MigrationPage.propTypes = {
 	...dataProps,
 	updateState: PropTypes.func,
-	translate: PropTypes.func,
+	t: PropTypes.func,
 	history: PropTypes.object,
 };
 
@@ -902,4 +1077,4 @@ export default connect(state => {
 }, {
 	updateState,
 	showBreadcrumb
-})(withLocalize(MigrationPage));
+})(withTranslation()(withRouter(MigrationPage)));

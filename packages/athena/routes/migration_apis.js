@@ -86,20 +86,39 @@ module.exports = (logger, ev, t) => {
 	//--------------------------------------------------
 	// Start the migration!
 	//--------------------------------------------------
-	app.post('/api/v[3]/migration/start', t.middleware.verify_manage_action_session_dep, (req, res) => {
+	app.post('/api/v[3]/migration/start', t.middleware.verify_migration_action_session_dep, (req, res) => {
 		start_migration(req, res);
 	});
 
-	app.post('/ak/api/v[3]/migration/start', t.middleware.verify_manage_action_ak_dep, (req, res) => {
+	app.post('/ak/api/v[3]/migration/start', t.middleware.verify_migration_action_ak_dep, (req, res) => {
 		start_migration(req, res);
 	});
 
 	function start_migration(req, res) {
-		t.migration_lib.migrate_ingress(req, (err, ret) => {
-			if (err) {
-				return res.status(t.ot_misc.get_code(err)).json(err);
+		t.migration_lib.validate_fabric_versions(req, (err2, ret_ver) => {
+			if (err2) {
+				logger.error('[migration ingress] cannot start ingress migration b/c unable to check on fabric versions');
+				logger.error(err2);
+				t.migration_lib.record_error('Internal issue - not able to check node versions', () => {
+					return res.status(500).json(err2);
+				});
+			} else if (!ret_ver || !ret_ver.all_valid) {
+				logger.error('[migration ingress] cannot start ingress migration b/c 2nd check on fabric versions failed');
+				t.migration_lib.record_error('Version issue - incompatible node versions detected', () => {
+					if (!ret_ver) { ret_ver = {}; }
+					ret_ver.message = 'version check failed';
+					return res.status(400).json(ret_ver);
+				});
 			} else {
-				return res.status(200).json(ret);
+				t.migration_lib.migrate_ingress(req, (err, ret) => {
+					if (err) {
+						t.migration_lib.record_error(err, () => {
+							return res.status(t.ot_misc.get_code(err)).json(err);
+						});
+					} else {
+						return res.status(200).json(ret);
+					}
+				});
 			}
 		});
 	}
@@ -137,11 +156,21 @@ module.exports = (logger, ev, t) => {
 	// For debug - reset migration steps
 	//--------------------------------------------------
 	app.get('/api/v[3]/migration/reset', t.middleware.verify_settings_action_session, (req, res) => {
-		reset_steps(req, res);
+		reset_steps(null, res);
+	});
+	app.get('/api/v[3]/migration/reset/all', t.middleware.verify_settings_action_session, (req, res) => {
+		reset_steps({ read_only_mode: false }, res);
 	});
 
-	function reset_steps(req, res) {
-		t.migration_lib.clear_migration_status((err, ret) => {
+	app.get('/ak/api/v[3]/migration/reset', t.middleware.verify_settings_action_ak, (req, res) => {
+		reset_steps(null, res);
+	});
+	app.get('/ak/api/v[3]/migration/reset/all', t.middleware.verify_settings_action_ak, (req, res) => {
+		reset_steps({ read_only_mode: false }, res);
+	});
+
+	function reset_steps(opts, res) {
+		t.migration_lib.clear_migration_status(opts, (err, ret) => {
 			if (err) {
 				return res.status(t.ot_misc.get_code(err)).json(err);
 			} else {

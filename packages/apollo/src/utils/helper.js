@@ -21,9 +21,11 @@ import isEmail from 'validator/lib/isEmail';
 import HiddenText from '../components/HiddenText/HiddenText';
 import StitchApi from '../rest/StitchApi';
 import { VALIDATION_ERRORS } from '../rest/ValidatedRestApi';
+import { EventsRestApi } from '../rest/EventsRestApi';
 const semver = require('semver');
 const JSZip = require('jszip');
-const decompressTargz = require('decompress-targz');
+const zlib = require('zlib');
+const tarStream = require('tar-stream');
 
 const Buffer = window.Buffer || require('buffer').Buffer;
 
@@ -48,6 +50,7 @@ const Helper = {
 		return newState;
 	},
 
+	// dsh todo remove "platform"
 	infrastructure: {
 		platform: 'ibmcloud',
 		supported_cas: ['ibmcloud', 'icp', 'openshift', 'kubernetes'],
@@ -178,6 +181,9 @@ const Helper = {
 				id: node.id,
 				scheme_version: node.scheme_version,
 				migrated_from: node.migrated_from ? node.migrated_from : undefined,
+				imported: node.imported ? node.imported : undefined,
+				cluster_type: node.cluster_type ? node.cluster_type : undefined,
+				console_type: node.console_type ? node.console_type : undefined,
 
 				// legacy fields needed for import on older systems
 				name: node.display_name,
@@ -216,6 +222,9 @@ const Helper = {
 				id: node.id,
 				scheme_version: node.scheme_version,
 				migrated_from: node.migrated_from ? node.migrated_from : undefined,
+				imported: node.imported ? node.imported : undefined,
+				cluster_type: node.cluster_type ? node.cluster_type : undefined,
+				console_type: node.console_type ? node.console_type : undefined,
 
 				// legacy fields needed for import on older systems
 				name: node.display_name,
@@ -252,7 +261,8 @@ const Helper = {
 	exportNode(node) {
 		let exportedNode = Helper.getExportedNode(node);
 		const type = node.type ? '_' + node.type.replace(/fabric-/, '') : '';
-		let fileName = (node.display_name || node.cluster_name || node.name) + type + '.json';
+		const nodeName = (node.display_name || node.cluster_name || node.name);
+		let fileName = nodeName + type + '.json';
 
 		exportedNode = JSON.stringify(exportedNode, null, 4);
 		let blob = new Blob([exportedNode], { type: 'application/json;' });
@@ -267,6 +277,12 @@ const Helper = {
 			createTarget.appendChild(link);
 			link.click();
 			createTarget.removeChild(link);
+
+			try {
+				EventsRestApi.recordActivity({ status: 'success', log: 'exporting component "' + (node.id || nodeName) + '"' });
+			} catch (e) {
+				console.error('unable to record export', e);
+			}
 		}
 	},
 
@@ -286,6 +302,7 @@ const Helper = {
 			createTarget.removeChild(link);
 		}
 	},
+
 	/*
 	 * Export a nodes as Zip
 	 */
@@ -330,7 +347,9 @@ const Helper = {
 						document.querySelector('.side__panel--outer--container') || document.querySelector('.vertical__panel--outer--container') || document.body;
 					let link = document.createElement('a');
 					if (link.download !== undefined) {
-						let zipName = 'IBP_' + new Date().toLocaleDateString() + '_' + new Date().toLocaleTimeString() + '.zip';
+						const d = new Date();
+						const dateStr = d.toLocaleDateString().replace(/[/_]/g, '-') + '-' + d.toLocaleTimeString().replace(/[:\sAPM]/g, '');
+						let zipName = 'FOC.' + dateStr + '.zip';
 						let url = URL.createObjectURL(blob);
 						link.setAttribute('href', url);
 						link.setAttribute('download', zipName);
@@ -338,6 +357,12 @@ const Helper = {
 						createTarget.appendChild(link);
 						link.click();
 						createTarget.removeChild(link);
+
+						try {
+							EventsRestApi.recordActivity({ status: 'success', log: 'bulk export of ' + exportedNodes.length + ' component' + (exportedNodes.length > 1 ? 's' : '') });
+						} catch (e) {
+							console.error('unable to record export', e);
+						}
 					}
 					resolve();
 				},
@@ -366,6 +391,12 @@ const Helper = {
 			createTarget.appendChild(link);
 			link.click();
 			createTarget.removeChild(link);
+
+			try {
+				EventsRestApi.recordActivity({ status: 'success', log: 'exporting certificate' });
+			} catch (e) {
+				console.error('unable to record export', e);
+			}
 		}
 	},
 
@@ -569,18 +600,38 @@ const Helper = {
 		return value && (value.indexOf('tcp://') !== -1 || value.indexOf('tls://') !== -1);
 	},
 
+	// get hostname from the url
 	getHostname(url) {
-		const parts = urlParser.parse(url);
-		return parts.hostname;
+		try {
+			const parts = urlParser.parse(url);
+			return parts.hostname;
+		} catch (e) {
+			console.error('cannot parse hostname from url:', url, e);
+			return '';
+		}
 	},
 
+	// get port from url, use standard ports if there is no port on url
 	getPort(url) {
-		const parts = urlParser.parse(url);
-		const protocol = parts.protocol ? parts.protocol : 'https:';
-		if (parts.port === null) {
-			parts.port = protocol === 'https:' ? '443' : '80';
+		try {
+			const parts = urlParser.parse(url);
+			const protocol = parts.protocol ? parts.protocol : 'https:';
+			if (parts.port === null) {
+				parts.port = protocol === 'https:' ? '443' : '80';
+			}
+			return parts.port;
+		} catch (e) {
+			console.error('cannot parse port from url:', url, e);
+			return null;
 		}
-		return parts.port;
+	},
+
+	// return true if these urls are equal in terms of their hostname and port
+	urlsAreEqual(url1, url2) {
+		return (
+			this.getHostname(url1) === this.getHostname(url2) &&
+			Number(this.getPort(url1)) === Number(this.getPort(url2))
+		);
 	},
 
 	normalizeHttpURL(http_url) {
@@ -924,11 +975,15 @@ const Helper = {
 		);
 	},
 
+	// dsh todo this is a mess, who wrote this? why aren't we looking at the datatype of value...
 	renderFieldSummary(translate, props, label, field, hidden, number, defaultValue) {
 		if (!field) {
 			field = label;
 		}
 		let value = _.get(props, field);
+		if (typeof value === 'boolean') {
+			value = value ? 'enabled' : 'disabled';		// hack, otherwise the summary is not showing fields that are false
+		}
 		if (!value) {
 			return;
 		}
@@ -986,11 +1041,17 @@ const Helper = {
 		if (!_.isString(value)) {
 			value = '' + value;
 		}
+
+		let label_txt = translate(label);
+		if (label_txt && label_txt[label_txt.length - 1] !== ':') {	// add colon to end of field if it doesn't have one...
+			label_txt += ':';
+		}
+
 		if (hidden) {
 			return (
 				<div className="summary-section">
 					<HiddenText id={'summary_' + field}
-						label={translate(label)}
+						label={label_txt}
 						labelClassName="summary-label"
 						text={value}
 						className="summary-value"
@@ -1000,7 +1061,7 @@ const Helper = {
 		}
 		return (
 			<div className="summary-section">
-				<p className="summary-label">{translate(label)}</p>
+				<p className="summary-label">{label_txt}</p>
 				<p className={'summary-value' + (filename ? ' summary-nowrap' : '')}>{value}</p>
 			</div>
 		);
@@ -1356,9 +1417,15 @@ const Helper = {
 			}
 			return 'v' + parts.join('.');
 		}
-		return str;
+		return '-';
 	},
 
+	// '2.0.0' -> 'v2.0.0'
+	// '2.0.0-5' -> 'v2.0.0-5'
+	// 'V2.0.0-5' -> 'v2.0.0-5'
+	prettyPrintVersion(str) {
+		return this.prettyPrintPolicy(str);
+	},
 
 	readLocalBinaryFile(file, limit) {
 		return new Promise((resolve, reject) => {
@@ -1392,10 +1459,66 @@ const Helper = {
 		return hashHex;
 	},
 
+	/**
+	 * Extracts a gzipped tar archive to a given buffer.
+	 * @param {string|Buffer|stream.Readable} input - A readable stream, buffer or string containing the gzipped tar archive.
+	 * @returns {Promise<Array>} A promise that resolves with an array of objects representing each file in the tar archive.
+	 */
+	async extractTargz(input) {
+		const unzip = zlib.createGunzip();
+
+		if (Buffer.isBuffer(input)) {
+			unzip.end(input);
+		} else {
+			input.pipe(unzip);
+		}
+
+		const extract = tarStream.extract();
+		const files = [];
+
+		extract.on('entry', (header, stream, cb) => {
+			const chunk = [];
+
+			stream.on('data', data => chunk.push(data));
+			stream.on('end', () => {
+				const file = {
+					data: Buffer.concat(chunk),
+					mode: header.mode,
+					mtime: header.mtime,
+					path: header.name,
+					type: header.type
+				};
+
+				if (header.type === 'symlink' || header.type === 'link') {
+					file.linkname = header.linkname;
+				}
+
+				files.push(file);
+				cb();
+			});
+		});
+
+		if (Buffer.isBuffer(unzip)) {
+			extract.end(unzip);
+		} else {
+			unzip.pipe(extract);
+		}
+
+		return new Promise((resolve, reject) => {
+			if (!Buffer.isBuffer(unzip)) {
+				unzip.on('error', reject);
+			}
+
+			extract.on('finish', () => resolve(files));
+			extract.on('error', reject);
+		});
+
+	},
+
 	async readLocalChaincodePackageFile(file) {
 		const buffer = await Helper.readLocalBinaryFile(file, CHAINCODE_LIMIT);
 		const uint8 = new Uint8Array(buffer);
-		const files = await decompressTargz()(buffer);
+		const files = await this.extractTargz(buffer);
 		let pkg_id = null;
 		let pkg_version = null;
 		let metadata = null;
@@ -1464,10 +1587,13 @@ const Helper = {
 		return highest;
 	},
 
+	// return array of nodes that are using  a fabric version older than v2.0
 	getPre20Nodes(nodes) {
 		let pre20Nodes = [];
 		nodes.forEach(node => {
-			if (!node.version || node.version.indexOf('2') !== 0) {
+			if (!node.version) {
+				console.error('cannot check if node is older than v2 b/c node does not have a "version" field', node);
+			} else if (this.version_matches_pattern('1.4.x', node.version)) {
 				pre20Nodes.push({
 					name: node.display_name || node.name,
 					version: node.version || '1.4.x',
@@ -1477,6 +1603,7 @@ const Helper = {
 		return pre20Nodes;
 	},
 
+	// check if the user has the right fabric versions on each relevant peer/orderer for the capability selected
 	validateCapability20Update(applicationCapability, ordererCapability, channelCapability, channelPeers, channelOrderers) {
 		let channel_warning_20 = false;
 		let channel_warning_20_details = [];
@@ -1590,6 +1717,85 @@ const Helper = {
 			ret = translate('friendly_ms_ms_ago', { millisecs: ms.toFixed(0) });
 		}
 		return ret;
+	},
+
+	// -----------------------------------------------------
+	// decide if version strings with wildcards match with the version - example: pattern="1.4.x", value="1.4.9" would return true
+	// -----------------------------------------------------
+	version_matches_pattern(pattern, value) {
+		pattern = (typeof pattern === 'number') ? pattern.toString() : pattern;							// safer...
+		value = (typeof value === 'number') ? value.toString() : value;
+		pattern = (typeof pattern === 'string') ? pattern.trim() : '';									// safer...
+		value = (typeof value === 'string') ? value.trim() : '';
+
+		pattern = (pattern[0].toLowerCase() === 'v') ? pattern.substring(1) : pattern;					// strip of leading V, like v1.4.9
+		value = (value[0].toLowerCase() === 'v') ? value.substring(1) : value;
+
+		let version_parts_pattern = pattern ? pattern.trim().replace(/-/g, '.').split('.') : null;		// treat 0.2.4-1 like 0.2.4.1
+		let version_parts_val = value ? value.trim().replace(/-/g, '.').split('.') : null;
+
+		if (version_parts_pattern === null || version_parts_val == null) {
+			return null;
+		}
+
+		// make them the same length
+		for (; version_parts_pattern.length < version_parts_val.length;) { version_parts_pattern.push('x'); }
+		for (; version_parts_val.length < version_parts_pattern.length;) { version_parts_val.push('0'); }
+
+		// iter on each digit
+		for (let i in version_parts_pattern) {
+			if (version_parts_pattern[i] === 'x') {										// if we made it to the 'x' then its a match
+				return true;
+			} else if (version_parts_pattern[i] !== version_parts_val[i]) {				// if these digits don't match, the versions do not match
+				return false;
+			} else {
+				// if these digits match, move to the next digit
+			}
+		}
+		return true;		// if all digits match... its a match
+	},
+
+	// there seems to be confusion if/when this field is a string vs boolean, this handles both
+	// returns true if fabric_node_ous.enable is true
+	node_ou_is_enabled(data) {
+		if (data && data.fabric_node_ous) {
+			if (data.fabric_node_ous.enable === true) {
+				return true;
+			}
+			if (data.fabric_node_ous.enable === 'enabled') {
+				return true;
+			}
+		}
+		return false;
+	},
+
+	// returns true if the component was imported to this console
+	is_imported(node_obj) {
+		if (node_obj && node_obj.imported === false) {			// better way
+			return false;
+		}
+		if (node_obj && node_obj.location === 'ibm_saas') {		// legacy way
+			return false;
+		}
+		return true;
+	},
+
+	// format the object into a valid query parameter
+	formatObjAsQueryParams(obj) {
+		let query = '';
+		for (let key in obj) {
+			if (key === 'key' || key === 'keys') {
+				query += key + '=' + JSON.stringify(obj[key]) + '&';
+			} else if (typeof obj[key] !== 'object') {
+				query += key + '=' + obj[key] + '&';
+			} else {
+				query += key + '=' + JSON.stringify(obj[key]) + '&';
+			}
+		}
+		if (query !== '') {
+			query = query.substring(0, query.length - 1);	// remove last "&"
+		}
+		return (query === '') ? '' : '?' + query;			// add leading "?" if we are sending query parameter data
 	}
 };
 

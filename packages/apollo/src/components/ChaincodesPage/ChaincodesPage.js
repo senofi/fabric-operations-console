@@ -14,10 +14,10 @@
  * limitations under the License.
 */
 import async from 'async';
-import { Button } from 'carbon-components-react';
+import { Button } from "@carbon/react";
 import PropTypes from 'prop-types';
 import React, { Component } from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import RequiresAttentionImage from '../../assets/images/requires_attention.svg';
 import { clearNotifications, showBreadcrumb, showError, updateState } from '../../redux/commonActions';
@@ -31,6 +31,7 @@ import Logger from '../Log/Logger';
 import PageContainer from '../PageContainer/PageContainer';
 import PageHeader from '../PageHeader/PageHeader';
 import SVGs from '../Svgs/Svgs';
+import withRouter from '../../hoc/withRouter';
 const naturalSort = require('javascript-natural-sort');
 
 const SCOPE = 'chaincodespage';
@@ -149,70 +150,71 @@ class ChaincodesPage extends Component {
 	}
 
 	render() {
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		return (
 			<PageContainer setFocus={!this.props.loading}>
-				<div className="bx--row">
-					<div className="bx--col-lg-13">
-						<PageHeader
-							history={this.props.history}
-							headerName="chaincode"
-							staticHeader
-						/>
-						<div className="lifecycle-20-notice">
-							<div>
-								<h3>{translate('smart_contract_20_lifecycle_notice_title')}</h3>
-								<p>{translate('smart_contract_20_lifecycle_notice_desc')}</p>
-								<div>
-									<button
-										id="how-to-topic-button"
-										className="how-to-topic-button bx--btn bx--btn--tertiary"
-										onClick={() => {
-											window.open(translate('chaincode_how_to_link', { DOC_PREFIX: this.props.docPrefix }));
-										}}
-									>
-										{translate('how_to_topic')}
-										<SVGs extendClass={{ 'ibp-container-list-add-button-img': true }}
-											type={'launch'}
-										/>
-									</button>
-									<Button
-										id="go-to-channel-button"
-										className="go-to-channel-button"
-										onClick={() => {
-											window.location.href = `${this.props.host_url}/channels`;
-										}}
-									>
-										{translate('go_to_channel')}
-										<SVGs type="arrowRight"
-											width="16px"
-											height="16px"
-										/>
-									</Button>
-								</div>
-							</div>
-							<RequiresAttentionImage className="ibp-requires-attention-image" />
-						</div>
-						<div className="ibp-chaincodepage-component">
-							<Chaincodes
-								peers={this.props.peers}
-								reload={() => this.refreshData()}
-								loading={this.props.loading}
-								installedChaincodeList={this.props.chaincodeList}
-								instantiatedChaincodeList={this.props.instantiated_array}
-							/>
-						</div>
-
-						<div className="ibp-chaincodepage-component">
-							<InstantiatedChaincodes
-								loading={this.props.loading}
-								reload={() => this.refreshData()}
-								installedChaincodeList={this.props.chaincodeList}
-								instantiated_array={this.props.instantiated_array}
-							/>
+				{/* <div className="cds-row">
+					<div className="cds--col-lg-13"> */}
+				<PageHeader
+					history={this.props.history}
+					headerName="chaincode"
+					staticHeader
+				/>
+				<div className="lifecycle-20-notice">
+					<div>
+						<h3>{translate('smart_contract_20_lifecycle_notice_title')}</h3>
+						<p>{translate('smart_contract_20_lifecycle_notice_desc')}</p>
+						<div>
+							<button
+								id="how-to-topic-button"
+								className="how-to-topic-button cds--btn cds--btn--tertiary"
+								onClick={() => {
+									window.open(translate('chaincode_how_to_link', { DOC_PREFIX: this.props.docPrefix }));
+								}}
+							>
+								{translate('how_to_topic')}
+								<SVGs extendClass={{ 'ibp-container-list-add-button-img': true }}
+									type={'launch'}
+								/>
+							</button>
+							<Button
+								id="go-to-channel-button"
+								className="go-to-channel-button"
+								onClick={() => {
+									window.location.href = `${this.props.host_url}/channels`;
+								}}
+							>
+								{translate('go_to_channel')}
+								<SVGs type="arrowRight"
+									width="16px"
+									height="16px"
+								/>
+							</Button>
 						</div>
 					</div>
+					<RequiresAttentionImage className="ibp-requires-attention-image" />
 				</div>
+				<div className="ibp-chaincodepage-component">
+					<Chaincodes
+						peers={this.props.peers}
+						reload={() => this.refreshData()}
+						loading={this.props.loading}
+						installedChaincodeList={this.props.chaincodeList}
+						instantiatedChaincodeList={this.props.instantiated_array}
+						feature_flags={this.props.feature_flags}
+					/>
+				</div>
+
+				<div className="ibp-chaincodepage-component">
+					<InstantiatedChaincodes
+						loading={this.props.loading}
+						reload={() => this.refreshData()}
+						installedChaincodeList={this.props.chaincodeList}
+						instantiated_array={this.props.instantiated_array}
+					/>
+				</div>
+				{/* </div>
+				</div> */}
 			</PageContainer>
 		);
 	}
@@ -232,7 +234,7 @@ ChaincodesPage.propTypes = {
 	showError: PropTypes.func,
 	updateState: PropTypes.func,
 	clearNotifications: PropTypes.func,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default connect(
@@ -240,6 +242,7 @@ export default connect(
 		let newProps = Helper.mapStateToProps(state[SCOPE], dataProps);
 		newProps['host_url'] = state['settings'] ? state['settings']['host_url'] : null;
 		newProps['docPrefix'] = state['settings'] ? state['settings']['docPrefix'] : null;
+		newProps['feature_flags'] = state['settings'] ? state['settings']['feature_flags'] : null;
 		return newProps;
 	},
 	{
@@ -248,4 +251,4 @@ export default connect(
 		showError,
 		updateState,
 	}
-)(withLocalize(ChaincodesPage));
+)(withTranslation()(withRouter(ChaincodesPage)));

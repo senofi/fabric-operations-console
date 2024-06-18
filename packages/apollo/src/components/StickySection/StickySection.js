@@ -13,16 +13,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
 */
-import Download20 from '@carbon/icons-react/lib/download/20';
-import Settings20 from '@carbon/icons-react/lib/settings/20';
-import Restart20 from '@carbon/icons-react/lib/restart/20';
-import Trash20 from '@carbon/icons-react/lib/trash-can/20';
-import { Button, SkeletonPlaceholder, SkeletonText } from 'carbon-components-react';
+import { Download, Settings, Restart, TrashCan } from '@carbon/icons-react';
+import { Button, SkeletonPlaceholder, SkeletonText } from "@carbon/react";
 import PropTypes from 'prop-types';
 import React from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import SVGs from '../Svgs/Svgs';
 import IdentityExpiration from '../IdentityExpiration/IdentityExpiration';
+import ActionsHelper from '../../utils/actionsHelper';
 
 const StickySection = ({
 	associateIdentityLabel,
@@ -40,10 +38,12 @@ const StickySection = ({
 	hideExport,
 	hideRefreshCerts,
 	type,
-	translate,
+	t: translate,
 	calloutGroups,
 	quickActions,
 	custom,
+	feature_flags,
+	userInfo,
 }) => {
 	const renderAssociation = (identity, msp_id) => {
 		if (!identity) {
@@ -161,19 +161,21 @@ const StickySection = ({
 		}
 	};
 
+	const hasPermForTrash = (details && details.imported) ? ActionsHelper.canRemoveComponent(userInfo, feature_flags) : ActionsHelper.canDeleteComponent(userInfo, feature_flags);
+
 	return (
 		<div className="ibp--node-details-sticky-container-content">
 			<div className="ibp--node-details-sticky-header">
 				<p className="ibp-node-detail-title">{translate(title)}</p>
 				<div className="ibp-node-detail-icons">
-					{details && (details.id || details.name) && !loading ? (
-						<Button
+					{(details && (details.id || details.name) && !loading) ? (
+						ActionsHelper.canManageComponent(userInfo, feature_flags) && <Button
 							id={`${details.id || details.name}-sticky-settings-button`}
 							className="ibp-detail-page-icon-button"
-							kind="secondary"
-							size="small"
-							renderIcon={Settings20}
-							iconDescription={translate('settings')}
+							kind="ghost"
+							size="sm"
+							renderIcon={() => <Settings size={20} />}
+							iconDescription={translate('comp_settings_desc')}
 							tooltipPosition="bottom"
 							tooltipAlignment="center"
 							onClick={() => openSettings('settings')}
@@ -189,13 +191,13 @@ const StickySection = ({
 						/>
 					)}
 					{!hideRefreshCerts &&
-						(details && (details.id || details.name) ? (
-							<Button
+						((details && (details.id || details.name) && !loading) ? (
+							ActionsHelper.canManageComponent(userInfo, feature_flags) && <Button
 								id={`${details.id || details.name}-sticky-refresh-button`}
 								className="ibp-detail-page-icon-button"
-								kind="secondary"
-								size="small"
-								renderIcon={Restart20}
+								kind="ghost"
+								size="sm"
+								renderIcon={() => <Restart size={20} />}
 								iconDescription={translate('refresh_certs')}
 								tooltipPosition="bottom"
 								tooltipAlignment="center"
@@ -216,10 +218,10 @@ const StickySection = ({
 							<Button
 								id={`${details.id || details.name}-sticky-download-button`}
 								className="ibp-detail-page-icon-button"
-								kind="secondary"
-								size="small"
-								renderIcon={Download20}
-								iconDescription={translate('export')}
+								kind="ghost"
+								size="sm"
+								renderIcon={() => <Download size={20} />}
+								iconDescription={translate('comp_export_desc')}
 								tooltipPosition="bottom"
 								tooltipAlignment="center"
 								onClick={() => exportNode()}
@@ -235,13 +237,13 @@ const StickySection = ({
 							/>
 						))}
 					{!hideDelete &&
-						(details && (details.id || details.name) ? (
-							<Button
+						((details && (details.id || details.name) && !loading) ? (
+							hasPermForTrash && <Button
 								id={`${details.id || details.name}-sticky-delete-button`}
 								className="ibp-detail-page-icon-button"
-								kind="secondary"
-								size="small"
-								renderIcon={Trash20}
+								kind="ghost"
+								size="sm"
+								renderIcon={() => <TrashCan size={20} />}
 								iconDescription={translate('delete')}
 								tooltipPosition="bottom"
 								tooltipAlignment="center"
@@ -365,7 +367,9 @@ StickySection.propTypes = {
 	type: PropTypes.string,
 	quickActions: PropTypes.array,
 	custom: PropTypes.func,
-	translate: PropTypes.func, // Provided by withLocalize
+	userInfo: PropTypes.object,
+	feature_flags: PropTypes.object,
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
-export default withLocalize(StickySection);
+export default withTranslation()(StickySection);

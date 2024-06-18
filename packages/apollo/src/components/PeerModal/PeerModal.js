@@ -13,11 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
 */
-import { CodeSnippet, SkeletonText, ToggleSmall } from 'carbon-components-react';
+import { CodeSnippet, SkeletonText, Toggle } from "@carbon/react";
 import _ from 'lodash';
 import PropTypes from 'prop-types';
 import React from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import { updateState } from '../../redux/commonActions';
 import { CertificateAuthorityRestApi } from '../../rest/CertificateAuthorityRestApi';
@@ -41,7 +41,8 @@ import SidePanelError from '../SidePanelError/SidePanelError';
 import TranslateLink from '../TranslateLink/TranslateLink';
 import Wizard from '../Wizard/Wizard';
 import WizardStep from '../WizardStep/WizardStep';
-import { Checkbox } from 'carbon-components-react';
+import { Checkbox } from "@carbon/react";
+import RenderParamHTML from '../RenderHTML/RenderParamHTML';
 
 const SCOPE = 'peerModal';
 const Log = new Logger(SCOPE);
@@ -326,26 +327,6 @@ class PeerModal extends React.Component {
 		}
 
 		this.onComplete();
-
-		try {
-			if (window.trackEvent) {
-				window.trackEvent('Deleted Object', {
-					objectType: 'Peer',
-					object:
-						this.props.peer.location === 'ibm_saas' && this.props.crn_string && this.props.peer.id
-							? `${this.props.crn_string}fabric-peer:${Helper.hash_str(this.props.peer.id)}`
-							: Helper.hash_str(this.props.peer.display_name),
-					category: 'operational',
-					tenantId: this.props.CRN.instance_id,
-					accountGuid: this.props.CRN.account_id,
-					milestoneName: this.props.peer.location === 'ibm_saas' ? 'Delete a peer' : 'Remove a peer',
-					'meta.region': this.props.peer.location,
-					'user.email': this.props.userInfo.loggedInAs.email,
-				});
-			}
-		} catch (error) {
-			Log.warn(`${prefix} event tracking failed: ${error}`);
-		}
 	}
 
 	upgradeNode(resolve, reject) {
@@ -494,10 +475,15 @@ class PeerModal extends React.Component {
 			if (e && e.msgs && e.msgs[0] && e.msgs[0].includes('Invalid \'version\' value')) {
 				breaking_upgrade = true;
 				breaking_details = (e && e.msgs) ? e.msgs[0] : '';
-				if (breaking_details.includes('from \'2.2')) {
-					breaking_msg = 'peer_breaking_upgrade2.2';
+				if (breaking_details.includes('Upgrading Fabric from \'2.2')) {
+					breaking_msg = 'peer_breaking_upgrade_2';
+				} else if (breaking_details.includes('Upgrading Fabric from \'1.4')) {	// use a better error message
+					breaking_msg = 'peer_breaking_upgrade';
+				} else if (breaking_details.includes('Upgrading Fabric from \'2.4')) {	// use a better error message
+					breaking_upgrade = false;
+				} else {
+					breaking_details = removeLastSentence(breaking_details);
 				}
-				breaking_details = removeLastSentence(breaking_details);
 			}
 		}
 
@@ -536,7 +522,7 @@ class PeerModal extends React.Component {
 			);
 		}
 		const buttons = [];
-		const saas = this.props.peer.location === 'ibm_saas' && ActionsHelper.canCreateComponent(this.props.userInfo);
+		const saas = this.props.peer.location === 'ibm_saas' && ActionsHelper.canCreateComponent(this.props.userInfo, this.props.feature_flags);
 		if (saas) {
 			if (this.props.clusterType !== 'free') {
 				buttons.push({
@@ -588,7 +574,7 @@ class PeerModal extends React.Component {
 					<button
 						id={button.id}
 						key={button.id}
-						className="ibp-ca-action bx--btn bx--btn--tertiary bx--btn--sm"
+						className="ibp-ca-action cds--btn cds--btn--tertiary cds--btn--sm"
 						onClick={() => {
 							if (button.onClick) {
 								button.onClick();
@@ -660,7 +646,7 @@ class PeerModal extends React.Component {
 				<div className="ibp-remove-peer-desc">
 					<p>
 						{this.props.peer.location === 'ibm_saas'
-							? translate('delete_peer_desc', {
+							? RenderParamHTML(translate, 'delete_peer_desc', {
 								name: (
 									<CodeSnippet
 										type="inline"
@@ -672,7 +658,7 @@ class PeerModal extends React.Component {
 									</CodeSnippet>
 								),
 							})
-							: translate('remove_peer_desc', {
+							: RenderParamHTML(translate, 'remove_peer_desc', {
 								name: (
 									<CodeSnippet
 										type="inline"
@@ -732,7 +718,7 @@ class PeerModal extends React.Component {
 			>
 				<div className="ibp-remove-peer-desc">
 					<p>
-						{translate('upgrade_node_desc', {
+						{RenderParamHTML(translate, 'upgrade_node_desc', {
 							name: (
 								<CodeSnippet
 									type="inline"
@@ -852,7 +838,7 @@ class PeerModal extends React.Component {
 			>
 				<div className="ibp-remove-peer-desc">
 					<p>
-						{translate('confirm_patch_desc', {
+						{RenderParamHTML(translate, 'confirm_patch_desc', {
 							name: (
 								<CodeSnippet
 									type="inline"
@@ -999,7 +985,7 @@ class PeerModal extends React.Component {
 					<div className="ibp-form">
 						<label className="ibp-form-label">{translate('third_party_ca')}</label>
 						<div className="ibp-form-input">
-							<ToggleSmall
+							<Toggle size="sm"
 								id="toggle-third-party-ca"
 								toggled={this.props.third_party_ca}
 								onToggle={() => {
@@ -1073,7 +1059,7 @@ class PeerModal extends React.Component {
 				<div>
 					<button
 						id="update_hsm_action"
-						className="ibp-peer-action bx--btn bx--btn--tertiary bx--btn--sm"
+						className="ibp-peer-action cds--btn cds--btn--tertiary cds--btn--sm"
 						onClick={() => {
 							this.showAction('update_hsm');
 						}}
@@ -1082,7 +1068,7 @@ class PeerModal extends React.Component {
 					</button>
 					<button
 						id="remove_hsm_action"
-						className="ibp-peer-action bx--btn bx--btn--sm bx--btn--danger"
+						className="ibp-peer-action cds--btn cds--btn--sm cds--btn--danger"
 						onClick={() => {
 							this.showAction('remove_hsm');
 						}}
@@ -1304,7 +1290,7 @@ class PeerModal extends React.Component {
 				/>
 				<div className="ibp-form">
 					<div className="ibp-form-field">
-						<p>
+						<div>
 							<BlockchainTooltip type="definition"
 								tooltipText={translate('config_override_delta')}
 							>
@@ -1313,8 +1299,8 @@ class PeerModal extends React.Component {
 							<TranslateLink text="config_override_update_peer"
 								className="ibp-peer-config-override-desc-with-link"
 							/>
-						</p>
-						<p className="ibp-form-input">
+						</div>
+						<div className="ibp-form-input">
 							<ConfigOverride
 								id="ibp-config-override"
 								config_override={this.props.config_override}
@@ -1324,7 +1310,7 @@ class PeerModal extends React.Component {
 									});
 								}}
 							/>
-						</p>
+						</div>
 					</div>
 				</div>
 			</WizardStep>
@@ -1566,7 +1552,7 @@ class PeerModal extends React.Component {
 	}
 
 	render() {
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		return (
 			<Wizard
 				onClose={this.props.onClose}
@@ -1636,7 +1622,7 @@ PeerModal.propTypes = {
 	onComplete: PropTypes.func,
 	onClose: PropTypes.func,
 	updateState: PropTypes.func,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default connect(
@@ -1653,4 +1639,4 @@ export default connect(
 	{
 		updateState,
 	}
-)(withLocalize(PeerModal));
+)(withTranslation()(PeerModal));

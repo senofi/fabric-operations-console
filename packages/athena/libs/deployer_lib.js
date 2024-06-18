@@ -652,6 +652,20 @@ module.exports = function (logger, ev, t) {
 				// error already logged
 				return cb(err);
 			} else {
+
+				// build a notification doc
+				/* removing b/c the local remove code will generate the same log
+				const type = t.component_lib.get_type_from_doc(doc) || 'component';		// try to get the component type from the doc
+				const name = doc.display_name || doc.short_name || doc._id;
+				const notice = {
+					message: 'deleting ' + type + ' "' + (doc._id || name) + '"',
+					component_id: doc._id,
+					component_type: doc.type,
+					component_display_name: doc.display_name,
+				};
+				t.notifications.procrastinate(req, notice);
+				*/
+
 				req._component_display_name = doc ? doc.display_name : null;	// store name for activity tracker
 				const options = {
 					dep_component_id: doc.dep_component_id,
@@ -785,6 +799,18 @@ module.exports = function (logger, ev, t) {
 			} else {
 				req._component_display_name = doc ? doc.display_name : null;					// store name for activity tracker
 				doc.type = doc.type ? doc.type.toLowerCase() : '?';
+
+				// build a notification doc
+				/* removing b/c the local edit code will generate the log and its better
+				if (doc) {
+					const notice = {
+						message: 'editing component "' + (doc._id || doc.display_name) + '"',
+						component_id: doc._id,
+						component_display_name: doc.display_name,
+					};
+					t.notifications.procrastinate(req, notice);
+				}*/
+
 				const parsed = {
 					iid: (ev.CRN && ev.CRN.instance_id) ? ev.CRN.instance_id : 'iid-not-set',
 					component_id: req.params.athena_component_id,
@@ -830,7 +856,17 @@ module.exports = function (logger, ev, t) {
 									return cb(athenaError, null);								// athena had an error
 								} else {
 									restart_comp_if_needed(() => {
-										return cb(null, { athena_fmt: athenaResponse, deployer_resp: fmt_ret, tx_id: parsed.debug_tx_id });
+
+										// if we updated fabric from v2.2 to v2.4 or higher, we might now have an osn admin url (which didn't exist before)
+										// so we need to refresh our data to capture the new urls or w.e. -> call get_all_components, it will sync differences
+										const opts2 = { _skip_cache: true, _include_deployment_attributes: true };
+										exports.get_all_components(opts2, () => {
+
+											// once we sync with deployer with get_all_components(), we may need to update our whitelist to reflect new urls
+											t.component_lib.rebuildWhiteList(req, () => {
+												return cb(null, { athena_fmt: athenaResponse, deployer_resp: fmt_ret, tx_id: parsed.debug_tx_id });
+											});
+										});
 									});
 								}
 							});
@@ -928,19 +964,29 @@ module.exports = function (logger, ev, t) {
 		let deleted_components = [];
 		let errors = 0;
 
-		// build a notification doc
-		const notice = {
-			message: 'deleting components by tag: ' + lc_tag,
-			tag: lc_tag,
-		};
-		t.notifications.procrastinate(req, notice);
-
 		t.component_lib.get_components_by_tag(lc_tag, true, (err, components) => {
 			if (err) {
 				logger.error('[deployer lib] error finding components to remove by tag:', lc_tag, '. error:', err);
 				return cb(err);
 			} else {
 				logger.debug('[deployer lib] removing ' + components.length + ' components with tag:', lc_tag);
+
+				// build a notification doc
+				const firstComp = Array.isArray(components) ? components[0] : null;
+				let notice = {};
+				if (firstComp && firstComp.cluster_id === lc_tag) {
+					notice = {
+						message: 'deleting ordering service: "' + firstComp.cluster_name + '"',
+						tag: lc_tag,
+					};
+				} else {
+					notice = {
+						message: 'deleting components by tag: "' + lc_tag + '"',
+						tag: lc_tag,
+					};
+				}
+				t.notifications.procrastinate(req, notice);
+
 				t.async.eachLimit(components, 3, (component, cb_deprovision) => {	// don't overload deployer, 3 at a time seems okay
 					deprovision(component, () => {
 						return cb_deprovision();
@@ -1180,9 +1226,12 @@ module.exports = function (logger, ev, t) {
 					deployer_data: deployer_data,
 				};
 				if (deployer_data && !deployer_data._cached) {						// do not run sync w/cached deployer data
-					batch_sync_deployer_attributes_with_couch(ret);					// we don't wait on batch sync... todo re-evaluate
+					batch_sync_deployer_attributes_with_couch(ret, () => {
+						return cb(null, ret);
+					});
+				} else {
+					return cb(null, ret);
 				}
-				return cb(null, ret);
 			}
 		});
 	};
@@ -1270,8 +1319,10 @@ module.exports = function (logger, ev, t) {
 		}
 	};
 
-	// reformat the error if we required this data but cannot get it
+	// (reformat the error if we required this data but cannot get it)
+	// if deployer gave us an error, AND deployment data was asked for AND we cannot use our cache... make this error:
 	function fmt_required_data_err(req, fmt_err) {
+		/* [2023/04 - changed my mind, lets absorb the error and return what we have, so we don't have to spawn a lot of apis...]
 		if (fmt_err && t.ot_misc.skip_cache(req) && t.component_lib.include_deployment_data(req)) {
 			fmt_err = {
 				statusCode: 503,
@@ -1280,8 +1331,8 @@ module.exports = function (logger, ev, t) {
 			};
 		} else if (fmt_err && !t.ot_misc.skip_cache(req) && t.component_lib.include_deployment_data(req)) {
 			fmt_err = null;							// if we didn't require it, don't pass error on
-		}
-		return fmt_err;
+		}*/
+		return null;		// see comment above
 	}
 
 	// ------------------------------------------
@@ -1454,6 +1505,15 @@ module.exports = function (logger, ev, t) {
 				return cb(err, null);
 			} else {
 				doc.type = doc.type ? doc.type.toLowerCase() : '?';
+
+				// build a notification doc
+				const notice = {
+					message: 'sending config block to component ' + (doc ? doc.display_name : '-'),
+					component_id: (doc ? doc._id : '-'),
+					component_display_name: (doc ? doc.display_name : '-'),
+				};
+				t.notifications.procrastinate(req, notice);
+
 				const parsed = {
 					iid: (ev.CRN && ev.CRN.instance_id) ? ev.CRN.instance_id : 'iid-not-set',
 					component_id: req.params.athena_component_id,
@@ -1636,12 +1696,23 @@ module.exports = function (logger, ev, t) {
 		req._include_deployment_attributes = true;
 		req._skip_cache = true;
 
+
 		// ----- Get current admin certs from deployer ----- //
 		exports.get_component_data(req, (err, data) => {
 			if (err || !data) {
 				logger.error('[deployer lib]', debug_tx_id, 'unable to get component data from deployer:', err);
 				return cb(err, null);
 			} else {
+
+				// build a notification doc
+				const c_data = (data && data.athena_doc) ? data.athena_doc : {};
+				const notice = {
+					message: 'editing admin certs on component "' + (c_data._id || c_data.display_name || '-') + '"',
+					component_id: c_data._id || '-',
+					component_display_name: c_data.display_name || '-',
+				};
+				t.notifications.procrastinate(req, notice);
+
 				const obj = edit_admin_certs(data.deployer_data);							// do the work
 
 				if (obj.changes_made === 0) {
@@ -1854,7 +1925,7 @@ module.exports = function (logger, ev, t) {
 	exports.deployer_has_a_different_value = (athena_data, deployer_data) => {
 		const fields2check = [
 			'admin_certs', 'resources', 'storage', 'version', 'zone', 'state_db', 'region', 'dep_component_id',
-			'ca_name', 'tlsca_name', 'api_url', 'grpcwp_url', 'operations_url', 'tls_cert', 'config_override',
+			'ca_name', 'tlsca_name', 'api_url', 'grpcwp_url', 'operations_url', 'osnadmin_url', 'tls_cert', 'config_override',
 			'node_ou', 'ecert', 'tls_ca_root_certs', 'ca_root_certs', 'crypto',
 			'api_url_saas', 'grpcwp_url_saas', 'operations_url_saas', 'osnadmin_url_saas'
 			// do not check admin_certs_parsed, or tls_cert_parsed b/c we don't want that stuff stored in the db
@@ -2045,6 +2116,14 @@ module.exports = function (logger, ev, t) {
 						'1.4.12-11': {
 							default: false,
 							version: '1.4.12-11'
+						},
+						'2.2.10': {
+							default: false,
+							version: '2.2.10'
+						},
+						'2.2.9-1': {
+							default: false,
+							version: '2.2.9-1'
 						}
 					},
 					orderer: {
@@ -2061,13 +2140,6 @@ module.exports = function (logger, ev, t) {
 			});*/
 			send_dep_req(opts, (err, depRespBody) => {									// then get deployer's docs
 				let { fmt_err, fmt_ret } = handle_dep_response(parsed, err, depRespBody);
-				if (fmt_ret && fmt_ret.versions && fmt_ret.versions.peer) {				// blacklisted versions, don't let these versions be options
-					delete fmt_ret.versions.peer['2.2.8-3'];
-					delete fmt_ret.versions.peer['2.2.9-1'];
-					delete fmt_ret.versions.peer['2.2.9-2'];
-					delete fmt_ret.versions.peer['2.2.9-3'];
-					delete fmt_ret.versions.peer['2.2.9-4'];
-				}
 				if (fmt_err === null && fmt_ret && ev.PROXY_CACHE_ENABLED === true) {	// only cache success responses
 					const data2cache = {
 						error: fmt_err,
@@ -2078,7 +2150,7 @@ module.exports = function (logger, ev, t) {
 					t.proxy_cache.set(req._key, data2cache, 1 * 60 * 60);				// expiration is in sec
 				}
 
-				return lc_cb(fmt_required_data_err(req, fmt_err), fmt_ret);
+				return lc_cb(fmt_err, fmt_ret);
 			});
 		}
 	};
@@ -2120,7 +2192,7 @@ module.exports = function (logger, ev, t) {
 
 				// build a notification doc
 				const notice = {
-					message: 'sending actions: ' + JSON.stringify(summary) + ' to component',
+					message: 'sending actions {' + JSON.stringify(summary) + '} to "' + (doc._id || doc.display_name) + '"',
 					component_id: doc._id,
 					component_type: doc.type || null,
 					component_display_name: doc.display_name || null,
@@ -2207,7 +2279,7 @@ module.exports = function (logger, ev, t) {
 	exports.get_k8s_version = function (cb) {
 		const parsed = {
 			iid: (ev.CRN && ev.CRN.instance_id) ? ev.CRN.instance_id : 'iid-not-set',
-			debug_tx_id: 'k8s',
+			debug_tx_id: 'k8s-ver',
 		};
 		const opts = {
 			method: 'GET',
@@ -2245,6 +2317,90 @@ module.exports = function (logger, ev, t) {
 					fmt_ret = { _version: 'unknown' };
 				}
 				return cb(null, fmt_ret);
+			}
+		});
+	};
+
+	// ------------------------------------------
+	// get the cluster type (openshift or iks)
+	// ------------------------------------------
+	exports.get_cluster_type = function (cb) {
+		const parsed = {
+			iid: (ev.CRN && ev.CRN.instance_id) ? ev.CRN.instance_id : 'iid-not-set',
+			debug_tx_id: 'k8s-type',
+		};
+		const opts = {
+			method: 'GET',
+			baseUrl: t.misc.format_url(ev.DEPLOYER_URL),
+			uri: '/api/v3/instance/' + parsed.iid + '/k8s/cluster/type',
+			timeout: ev.DEPLOYER_TIMEOUT,
+			headers: {
+				'Accept': 'application/json'
+			},
+			_tx_id: parsed.debug_tx_id,
+		};
+		send_dep_req(opts, (statusCode, depRespBody) => {
+			//statusCode = 200;
+			//depRespBody = 'openshift';
+			if (t.ot_misc.is_error_code(statusCode)) {
+				logger.error('[cluster type] unable to get cluster type from deployer, communication error', depRespBody);
+				return cb({ statusCode: statusCode, error: depRespBody });
+			} else {
+				let type = ev.STR.INFRA_K8S;				// defaults as "k8s"
+				if (!depRespBody) {
+					logger.warn('[cluster type] unable to get cluster type, deployer response is blank:', typeof depRespBody, depRespBody);
+					return cb({ statusCode: 500, error: depRespBody });
+				} else if (typeof depRespBody !== 'string') {
+					logger.warn('[cluster type] unexpected cluster type from deployer response is not a string:', typeof depRespBody, depRespBody);
+					return cb({ statusCode: 500, error: depRespBody });
+				} else {
+					type = depRespBody.toLowerCase();
+					type = type.replace(/[^a-zA-Z0-9]/g, '').trim();
+					logger.debug('[cluster type] got cluster type from deployer:', typeof type, type);
+					return cb(null, { type: type, message: ev.STR.STATUS_ALL_GOOD });
+				}
+			}
+		});
+	};
+
+	// ------------------------------------------
+	// get and store the cluster type
+	// ------------------------------------------
+	exports.store_cluster_type = function (cb) {
+		if (!cb) { cb = function () { }; }
+		exports.get_cluster_type((err, resp) => {
+			if (err) {
+				logger.warn('[startup - cluster type] unable to retrieve cluster type from deployer');
+				return cb(err);
+			} else if (!resp || !resp.type) {
+				logger.warn('[startup - cluster type] unexpected response when getting cluster type from deployer');
+				return cb({ statusCode: 500, error: 'missing cluster type in response' });
+			} else {
+
+				// overwrite the setting if its different (possible values atm are "openshift" or "k8s")
+				if (resp.type !== ev.INFRASTRUCTURE) {
+					logger.debug('[startup - cluster type] detected a different value for the cluster type, storing in settings doc');
+
+					t.otcc.getDoc({ db_name: ev.DB_SYSTEM, _id: process.env.SETTINGS_DOC_ID, SKIP_CACHE: true }, (err, settings_doc) => {
+						if (err) {
+							logger.error('[startup - cluster type] an error occurred obtaining the "' + process.env.SETTINGS_DOC_ID + '"', err, settings_doc);
+							return cb();
+						} else {
+							settings_doc.infrastructure = resp.type;
+
+							t.otcc.writeDoc({ db_name: ev.DB_SYSTEM }, settings_doc, (err) => {
+								if (err) {
+									logger.error('[startup - cluster type] an error occurred updating the "' + process.env.SETTINGS_DOC_ID + '"',
+										err, settings_doc);
+								}
+								return cb();
+							});
+						}
+					});
+				} else {
+					logger.debug('[startup - cluster type] cluster type is already correct, no need to edit. INFRASTRUCTURE:', ev.INFRASTRUCTURE);
+					return cb();
+				}
 			}
 		});
 	};

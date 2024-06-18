@@ -18,6 +18,7 @@
 //------------------------------------------------------------
 module.exports = function (logger, ev, t) {
 	const exports = {};
+	exports.login_timer = null;
 
 	//--------------------------------------------------
 	// Get non-sensitive settings for athena
@@ -31,7 +32,9 @@ module.exports = function (logger, ev, t) {
 			DOMAIN: ev.DOMAIN,									// null is valid, don't make this a question mark
 			PORT: Number(ev.PORT) || '?',
 			DEPLOYER_URL: t.misc.redact_basic_auth(ev.DEPLOYER_URL) || '?',
-			DB_SYSTEM: ev.DB_SYSTEM || '?',
+			//DB_SYSTEM: ev.DB_SYSTEM || '?',
+			//DB_COMPONENTS: ev.DB_COMPONENTS || '?',
+			//DB_SESSIONS: ev.DB_SESSIONS || '?',
 			HOST_URL: ev.HOST_URL || '?',
 			CONFIGTXLATOR_URL: ev.CONFIGTXLATOR_URL || '?',
 			LANDING_URL: ev.LANDING_URL || '?',
@@ -49,14 +52,17 @@ module.exports = function (logger, ev, t) {
 			},
 			FILE_LOGGING: {
 				server: {
-					path: t.log_lib.get_log_path(),
-					file_name: t.log_lib.build_log_file_name(ev, t.log_lib.get_log_base_name('server'), 'server'),
+					// removing these two b/c "security concerns" 2023/10/10
+					//path: t.log_lib.get_log_path(),
+					//file_name: t.log_lib.build_log_file_name(ev, t.log_lib.get_log_base_name('server'), 'server'),
+
 					enabled: t.log_lib.is_file_logging_enabled(ev, 'server'),
 					level: t.log_lib.get_logging_level(ev, 'server'),
 				},
 				client: {
-					path: t.log_lib.get_log_path(),
-					file_name: t.log_lib.build_log_file_name(ev, t.log_lib.get_log_base_name('client'), 'client'),
+					// removing these two b/c "security concerns" 2023/10/10
+					//path: t.log_lib.get_log_path(),
+					//file_name: t.log_lib.build_log_file_name(ev, t.log_lib.get_log_base_name('client'), 'client'),
 					enabled: t.log_lib.is_file_logging_enabled(ev, 'client'),
 					level: t.log_lib.get_logging_level(ev, 'client'),
 				}
@@ -66,45 +72,45 @@ module.exports = function (logger, ev, t) {
 			PROXY_TLS_HTTP_URL: ev.PROXY_TLS_HTTP_URL,
 			PROXY_TLS_WS_URL: ev.PROXY_TLS_WS_URL || '?',
 			PROXY_TLS_FABRIC_REQS: ev.PROXY_TLS_FABRIC_REQS,	// false is valid, don't make this a question mark
-			IAM_URL: ev.IAM ? (ev.IAM.URL || '?') : '?',
-			IAM_CACHE_ENABLED: ev.IAM_CACHE_ENABLED,			// false is valid, don't make this a question mark
-			IBM_ID_URL: ev.IBM_ID ? (ev.IBM_ID.URL || '?') : '?',
-			IBM_ID_CALLBACK_URL: (ev.HOST_URL + ev.LOGIN_URI) || '?',
+			//IAM_URL: ev.IAM ? (ev.IAM.URL || '?') : '?',
+			//IAM_CACHE_ENABLED: ev.IAM_CACHE_ENABLED,			// false is valid, don't make this a question mark
+			//IBM_ID_URL: ev.IBM_ID ? (ev.IBM_ID.URL || '?') : '?',
+			//IBM_ID_CALLBACK_URL: (ev.HOST_URL + ev.LOGIN_URI) || '?',
 			INFRASTRUCTURE: ev.INFRASTRUCTURE || '?',
 			MAX_REQ_PER_MIN: ev.MAX_REQ_PER_MIN || '?',
-			CSP_HEADER_VALUES: ev.CSP_HEADER_VALUES || '?',
+			//CSP_HEADER_VALUES: ev.CSP_HEADER_VALUES || '?',
 			CLUSTER_DATA: ev.CLUSTER_DATA || {},
 			IGNORE_CONFIG_FILE: ev.IGNORE_CONFIG_FILE === true,	// false is valid, don't make this a question mark',
-			TRUST_UNKNOWN_CERTS: ev.TRUST_UNKNOWN_CERTS === true, // false is valid, don't make this a question mark
+			//TRUST_UNKNOWN_CERTS: ev.TRUST_UNKNOWN_CERTS === true, // false is valid, don't make this a question mark
 			MAX_REQ_PER_MIN_AK: ev.MAX_REQ_PER_MIN || '?',
 			VERSIONS: t.ot_misc.parse_versions(),
-			MEMORY_CACHE_ENABLED: ev.MEMORY_CACHE_ENABLED,		// false is valid, don't make this a question mark
-			SESSION_CACHE_ENABLED: ev.SESSION_CACHE_ENABLED,	// false is valid, don't make this a question mark
-			PROXY_CACHE_ENABLED: ev.PROXY_CACHE_ENABLED,		// false is valid, don't make this a question mark
+			//MEMORY_CACHE_ENABLED: ev.MEMORY_CACHE_ENABLED,		// false is valid, don't make this a question mark
+			//SESSION_CACHE_ENABLED: ev.SESSION_CACHE_ENABLED,	// false is valid, don't make this a question mark
+			//PROXY_CACHE_ENABLED: ev.PROXY_CACHE_ENABLED,		// false is valid, don't make this a question mark
 			TRANSACTION_VISIBILITY: ev.TRANSACTION_VISIBILITY || {},
 			INACTIVITY_TIMEOUTS: ev.INACTIVITY_TIMEOUTS,
 			FABRIC_CAPABILITIES: ev.FABRIC_CAPABILITIES,		// settings.js guarantees this field will exist
 			TIMEOUTS: {
-				GRPCWPP_TIMEOUT: ev.GRPCWPP_TIMEOUT || '?',
 				HTTP_TIMEOUT: ev.HTTP_TIMEOUT || '?',
 				WS_TIMEOUT: ev.WS_TIMEOUT || ' ?',
 				DEPLOYER_TIMEOUT: ev.DEPLOYER_TIMEOUT || '?',
-				BACKEND_ADDRESS_TIMEOUT: ev.BACKEND_ADDRESS_TIMEOUT_MS || '?',
 				CONFIGTXLATOR_TIMEOUT: ev.CONFIGTXLATOR_TIMEOUT || '?',
+				HTTP_STATUS_TIMEOUT: ev.HTTP_STATUS_TIMEOUT || '?',
 				CLIENT: {
 					FABRIC_GET_BLOCK_TIMEOUT_MS: ev.FABRIC_GET_BLOCK_TIMEOUT_MS || '?',
+					FABRIC_GET_CC_TIMEOUT_MS: ev.FABRIC_GET_CC_TIMEOUT_MS || '?',
 					FABRIC_INSTANTIATE_TIMEOUT_MS: ev.FABRIC_INSTANTIATE_TIMEOUT_MS || '?',
 					FABRIC_JOIN_CHANNEL_TIMEOUT_MS: ev.FABRIC_JOIN_CHANNEL_TIMEOUT_MS || '?',
 					FABRIC_INSTALL_CC_TIMEOUT_MS: ev.FABRIC_INSTALL_CC_TIMEOUT_MS || '?',
 					FABRIC_LC_INSTALL_CC_TIMEOUT_MS: ev.FABRIC_LC_INSTALL_CC_TIMEOUT_MS || '?',
 					FABRIC_GENERAL_TIMEOUT_MS: ev.FABRIC_GENERAL_TIMEOUT_MS || '?',
 					FABRIC_LC_GET_CC_TIMEOUT_MS: ev.FABRIC_LC_GET_CC_TIMEOUT_MS || '?',
+					FABRIC_CA_TIMEOUT_MS: ev.FABRIC_CA_TIMEOUT_MS || '?',
 				}
 			},
 			THE_DEFAULT_RESOURCES_MAP: ev.THE_DEFAULT_RESOURCES_MAP || '?',
-			TRUST_PROXY: ev.TRUST_PROXY, 						// false is valid, don't make this a question mark
-			ACTIVITY_TRACKER_PATH: ev.ACTIVITY_TRACKER_PATH || '?',
-			HSM: ev.HSM,										// false is valid, don't make this a question mark
+			//TRUST_PROXY: ev.TRUST_PROXY, 						// false is valid, don't make this a question mark
+			//HSM: ev.HSM,										// false is valid, don't make this a question mark
 			LDAP: {
 				SEARCH_BASE: ev.LDAP.SEARCH_BASE || '?',
 				GROUP_SEARCH_BASE: ev.LDAP.GROUP_SEARCH_BASE || '?',
@@ -118,6 +124,8 @@ module.exports = function (logger, ev, t) {
 			MIGRATED_CONSOLE_URL: ev.MIGRATED_CONSOLE_URL,
 			MIGRATION_MIN_VERSIONS: ev.MIGRATION_MIN_VERSIONS,
 			MIGRATION_STATUS: ev.MIGRATION_STATUS || {},
+			CONSOLE_TYPE: ev.CONSOLE_TYPE || '?',
+			CONSOLE_BUILD_TYPE: ev.CONSOLE_BUILD_TYPE || undefined,
 		};
 		return t.misc.sortItOut(ret);
 	};
@@ -160,11 +168,16 @@ module.exports = function (logger, ev, t) {
 	exports.get_private_settings = () => {
 		const ret = {											// compile the list of private settings
 			DEPLOYER_URL: ev.DEPLOYER_URL || '?',				// for OpTools developers show the un-redacted url
-			//DEFAULT_USER_PASSWORD: ev.DEFAULT_USER_PASSWORD,	// for debug
+			JUPITER_URL: ev.JUPITER_URL || '?',					// for OpTools developers show the un-redacted url
+			//DEFAULT_USER_PASSWORD: ev.DEFAULT_USER_PASSWORD,	// do not uncomment this line in production
 			SESSION_SECRET: ev.SESSION_SECRET,					// for debug
-			HOST_WHITE_LIST: ev.HOST_WHITE_LIST || [],			// for debug, moved this here from get_ev_settings so we don't leak component addresses
+			URL_SAFE_LIST: ev.URL_SAFE_LIST || [],				// for debug, moved this here from get_ev_settings so we don't leak component addresses
 			CONFIGTXLATOR_URL_ORIGINAL: ev.CONFIGTXLATOR_URL_ORIGINAL || '?',
 			COOKIE_NAME: ev.COOKIE_NAME || '?',
+			MIGRATION_API_KEY: ev.MIGRATION_API_KEY,			// for debug
+			DB_CONNECTION_STRING: t.misc.redact_basic_auth(ev.DB_CONNECTION_STRING),	// for debug
+			OAUTH: ev.OAUTH,
+			ALLOW_DEFAULT_PASSWORD: ev.ALLOW_DEFAULT_PASSWORD
 		};
 		return t.misc.sortItOut(ret);
 	};
@@ -190,8 +203,8 @@ module.exports = function (logger, ev, t) {
 				const key = Object.keys(req.body)[0];
 
 				// Check if the user's auth_scheme is 'ibmid'. If so then exit the API with an error message
-				if ((ev.AUTH_SCHEME === 'ibmid' || ev.AUTH_SCHEME === 'iam') && key === 'auth_scheme') {
-					return cb({ statusCode: 400, msg: 'Your auth_scheme is \'ibmid\'. You are not allowed to change this' });
+				if (key === 'auth_scheme') {
+					return cb({ statusCode: 400, msg: 'You cannot change the value of "auth_scheme" with this API.' });
 				}
 
 				settings[key] = req.body[key];								// replace the property
@@ -226,6 +239,14 @@ module.exports = function (logger, ev, t) {
 	}
 
 	//--------------------------------------------------
+	// clear the login timer
+	//--------------------------------------------------
+	exports.clear_login_timer = () => {
+		logger.info('[oauth] the user login timer has been dismissed via a successful login');
+		clearTimeout(exports.login_timer);
+	};
+
+	//--------------------------------------------------
 	// Edit settings fields on UI
 	//--------------------------------------------------
 	/*
@@ -234,7 +255,7 @@ module.exports = function (logger, ev, t) {
 	exports.edit_ui_settings = (req, cb) => {
 
 		// build a notification doc
-		const notice = { message: 'editing ui settings' };
+		const notice = { message: 'editing ui settings - ' + t.misc.objKeysToString(req ? req.body : {}) };
 		t.notifications.procrastinate(req, notice);
 
 		t.logging_apis_lib.prepare_logging_setting_changes(req, (edit_err, edited_settings_doc) => {
@@ -242,6 +263,7 @@ module.exports = function (logger, ev, t) {
 				return cb(edit_err, edited_settings_doc);							// error already logged
 			} else {
 				let restart_changes = edited_settings_doc.log_changes;				// this gets deleted before writing doc
+				const original_doc = JSON.parse(JSON.stringify(edited_settings_doc));
 
 				// make the timeout changes
 				handle_fabric_timeout_settings(req, edited_settings_doc);
@@ -269,6 +291,66 @@ module.exports = function (logger, ev, t) {
 					restart_changes++;												// increment this to trigger a restart
 				}
 
+				// auth scheme edits
+				if (req.body.auth_scheme) {
+
+					// if we are changing TO couchdb auth, then reset all user passwords (users will use the default password to login)
+					if (req.body.auth_scheme === 'couchdb' && edited_settings_doc.auth_scheme !== 'couchdb') {	// if already using couchdb, skip this part
+						logger.debug('[edit settings] setting up couchdb auth, resetting all user passwords to the default pass');
+						for (let user in edited_settings_doc.access_list) {
+							delete edited_settings_doc.access_list[user].hashed_secret;
+							delete edited_settings_doc.access_list[user].salt;
+							delete edited_settings_doc.access_list[user].ts_changed_password;
+						}
+					}
+
+					edited_settings_doc.auth_scheme = req.body.auth_scheme;
+
+					// if we are changing TO oauth OR changing oauth params, then create a user login timer
+					// if a user fails to login with 2 minutes, revert the changes made here
+					// (this helps prevent a console from being inaccessible due to setting bad/wrong oauth settings)
+					if (req.body.auth_scheme === 'oauth' || req.body.oauth) {
+						logger.warn('[edit settings] setting up user login timer, a user must login using the new auth setting to keep these settings');
+						clearTimeout(exports.login_timer);
+						exports.login_timer = setTimeout(() => {
+							logger.error('[edit settings] the user login timer has expired. reverting auth setting changes');
+							t.otcc.getDoc({ db_name: ev.DB_SYSTEM, _id: process.env.SETTINGS_DOC_ID, SKIP_CACHE: true }, (err, settings_doc) => {
+								if (err) {
+									logger.error('[edit settings] unable to get settings doc to revert a setting...?', err);
+								} else {
+									settings_doc.auth_scheme = original_doc.auth_scheme;	// revert to the old scheme
+									if (original_doc.oauth) {
+										settings_doc.oauth = original_doc.oauth;			// revert oauth settings to prev values if there were prev values
+									}
+									writeSettingsDoc(req, settings_doc, (write_error, resp) => {
+										logger.info('[edit settings] the auth scheme settings have reverted');
+									});
+								}
+							});
+						}, 1000 * 115);			// a little shy of 120 seconds should account for any delay and make this happen before the UI times out
+					}
+				}
+
+				// oauth setting edits
+				if (req.body.oauth) {
+					edited_settings_doc.oauth = {
+						authorization_url: req.body.oauth.authorization_url,
+						token_url: req.body.oauth.token_url,
+						client_id: req.body.oauth.client_id,
+						client_secret: req.body.oauth.client_secret,
+						scope: req.body.oauth.scope,
+						debug: req.body.oauth.debug
+					};
+				}
+
+				// couchdb setting edits
+				if (req.body.default_user_password) {
+					edited_settings_doc.default_user_password = req.body.default_user_password;
+				}
+				if (typeof req.body.allow_default_password === 'boolean') {
+					edited_settings_doc.allow_default_password = req.body.allow_default_password;
+				}
+
 				writeSettingsDoc(req, edited_settings_doc, (write_error, resp) => {	// write the updated settings back to the db
 					if (write_error) {
 						return cb(write_error, edited_settings_doc);				// error already logged
@@ -287,14 +369,24 @@ module.exports = function (logger, ev, t) {
 							return;
 						} else {
 							logger.debug('[edit settings] there were no changes to log settings, no need to restart.');
-							ev.update(null, err => {								// reload ev settings
-								if (err) {
-									logger.error('[edit settings] error updating ev', err);
-									return cb({ statusCode: 500, msg: 'unable to update settings', details: err });
-								} else {
-									return cb(null, exports.get_ev_settings());
+							// the ev settings will reload automatically b/c of our pillow talk listener
+
+							// reload passport settings after the delay
+							// wait for the update-settings debounce to take effect before updating passport
+							setTimeout(() => {
+								if (req.body.oauth) {
+									const msg = {
+										message_type: 'passport',
+										message: 'reloading passport setup b/c auth settings changed',
+										by: t.misc.censorEmail(t.middleware.getEmail(req)),
+										uuid: t.middleware.getUuid(req),
+									};
+									t.pillow.broadcast(msg);
 								}
-							});
+
+								// return ev settings response after the delay
+								return cb(null, exports.get_ev_settings());
+							}, 1000);	// 400ms was not enough, 500 is
 						}
 					}
 				});
@@ -518,7 +610,7 @@ module.exports = function (logger, ev, t) {
 								config_file = JSON.parse(config_file);
 
 							} else {
-								config_file = t.yaml.safeLoad(config_file);							// if its yaml, load it with the yaml lib
+								config_file = t.yaml.load(config_file);							// if its yaml, load it with the yaml lib
 							}
 						} catch (e) {
 							logger.error('[other] could not parse config file', e);
@@ -637,7 +729,7 @@ module.exports = function (logger, ev, t) {
 							if (process.env.CONFIGURE_FILE.indexOf('.json') >= 0) {			// json config file
 								config_file = JSON.parse(config_file);
 							} else {
-								config_file = t.yaml.safeLoad(config_file);					// yaml config file
+								config_file = t.yaml.load(config_file);					// yaml config file
 							}
 						} catch (e) {
 							logger.error('[settings edit] could not parse config file', e);
@@ -682,7 +774,7 @@ module.exports = function (logger, ev, t) {
 								if (process.env.CONFIGURE_FILE.indexOf('.json') >= 0) {
 									t.fs.writeFileSync(process.env.CONFIGURE_FILE, settings.config.data, 'utf8');	// if its json, simply write it
 								} else {
-									const yaml = t.yaml.safeDump(settings.config.data);			// if its a yaml, convert json to yaml first
+									const yaml = t.yaml.dump(settings.config.data);				// if its a yaml, convert json to yaml first
 									t.fs.writeFileSync(process.env.CONFIGURE_FILE, yaml, 'utf8');
 								}
 								logger.info('[settings edit] successfully wrote config file');
@@ -729,7 +821,7 @@ module.exports = function (logger, ev, t) {
 				components: openapi.components,
 			};
 			try {
-				return t.yaml.safeDump(swagger_file);				// convert json to yaml
+				return t.yaml.dump(swagger_file);				// convert json to yaml
 			} catch (e) {
 				logger.error('unable to work with swagger file:', e);
 			}
@@ -743,7 +835,7 @@ module.exports = function (logger, ev, t) {
 	exports.store_swagger_file = (req, cb) => {
 		let json = null;
 		try {
-			json = t.yaml.safeLoad(req.body);
+			json = t.yaml.load(req.body);
 		} catch (e) {
 			logger.error('[openapi] unable to covert yaml to json:', e);
 		}
@@ -805,6 +897,127 @@ module.exports = function (logger, ev, t) {
 				}
 			});
 		}
+	};
+
+	//-----------------------------------------------------------------------------
+	// Return a console/component/k8s version summary for support/debug purposes
+	//-----------------------------------------------------------------------------
+	exports.version_summary = (req, cb) => {
+		const console_data = t.ot_misc.parse_versions();
+		const ret = {
+			console: {
+				version: (console_data && console_data.tag) ? t.misc.prettyPrintVersion(console_data.tag) : '-',
+				commit: (console_data && console_data.athena) ? console_data.athena : '-',
+			},
+			components: [],
+			cluster: {
+				type: '',
+				version: '',
+				go_version: '',
+			},
+			operator: {
+				available_fabric_versions: {}
+			},
+			timestamp: Date.now(),
+		};
+
+		t.async.parallel([
+
+			// ---- Get component docs from athena db ---- //
+			(join) => {
+				t.component_lib.get_all_runnable_components(req, (err, resp) => {
+					if (err) {
+						logger.error('[version] unable to get runnable component docs:', err);
+						return join(null);
+					} else {
+
+						// iter on each component
+						t.async.eachLimit(resp, 8, (comp_doc, cb_version) => {
+							const comp = t.comp_fmt.fmt_component_resp(req, comp_doc);
+
+							if (!comp_doc || !comp_doc.operations_url) {
+								ret.components.push({
+									id: comp.id,
+									display_name: comp.display_name,
+									version: '-',
+									imported: comp.imported,
+									type: comp.type,
+								});
+								return cb_version();
+							} else {
+
+								t.component_lib.get_version(comp_doc, null, (err_ver, resp_ver) => {
+									ret.components.push({
+										id: comp.id,
+										display_name: comp.display_name,
+										version: resp_ver.version,
+										imported: comp.imported,
+										type: comp.type,
+									});
+									return cb_version();
+								});
+							}
+						}, () => {
+							return join(null, ret);
+						});
+					}
+				});
+			},
+
+			// ---- Get k8s version ---- //
+			(join) => {
+				t.deployer.get_k8s_version((err, resp) => {
+					if (err) {
+						// error already logged
+						return join(null);
+					} else {
+						ret.cluster.version = (resp && resp._version) ? t.misc.prettyPrintVersion(resp._version) : '-';
+						ret.cluster.go_version = (resp && resp.goVersion) ? resp.goVersion : '-';
+						return join(null, resp);
+					}
+				});
+			},
+
+			// ---- Get cluster type ---- //
+			(join) => {
+				t.deployer.get_cluster_type((err, resp) => {
+					if (err) {
+						// error already logged
+						return join(null);
+					} else {
+						ret.cluster.type = (resp && resp.type) ? resp.type : '-';
+						return join(null, resp);
+					}
+				});
+			},
+
+			// ---- Get available fabric versions ---- //
+			(join) => {
+				t.deployer.get_fabric_versions(req, (err, resp) => {
+					if (err) {
+						// error already logged
+						join(null);
+					} else {
+						const tmp = (resp && resp.versions) ? resp.versions : {};
+						const types = ['peer', 'orderer', 'ca'];
+						for (let i in types) {
+							const fab_type = types[i];
+							if (tmp && tmp[fab_type]) {
+								ret.operator.available_fabric_versions[fab_type] = [];
+								for (let ver in tmp[fab_type]) {
+									ret.operator.available_fabric_versions[fab_type].push(t.misc.prettyPrintVersion(ver));
+								}
+							}
+						}
+						join(null, resp.versions);
+					}
+				});
+			}
+
+		], (_, results) => {
+			logger.info('[version] returning version summary');
+			return cb(null, t.misc.sortItOut(ret));
+		});
 	};
 
 	return exports;

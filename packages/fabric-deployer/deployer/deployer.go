@@ -233,8 +233,15 @@ func (d *Deployer) registerEndpoints() {
 	r.Patch("/api/v3/instance/{serviceInstanceID}/type/{type}/component/{componentName}", d.PatchEndpointSection())
 	r.Patch("/api/v3/instance/{serviceInstanceID}/type/{type}/component/{componentName}/{section}", d.PatchEndpointSection())
 
+	// hsm config
+	r.Get("/api/v3/instance/{serviceInstanceID}/hsmconfig", d.HSMEndpoint(GET))
+	r.Post("/api/v3/instance/{serviceInstanceID}/hsmconfig", d.HSMEndpoint(POST))
+	r.Patch("/api/v3/instance/{serviceInstanceID}/hsmconfig", d.HSMEndpoint(PATCH))
+	r.Delete("/api/v3/instance/{serviceInstanceID}/hsmconfig", d.HSMEndpoint(DELETE))
+
 	// k8s
 	r.Get("/api/v3/instance/{serviceInstanceID}/k8s/cluster/version", d.K8sVersionEndpoint())
+	r.Get("/api/v3/instance/{serviceInstanceID}/k8s/cluster/type", d.ClusterTypeEndpoint())
 
 	// mustgather
 	r.Get("/api/v3/instance/{serviceInstanceID}/mustgather", d.GetMustgatherEndpoint())
@@ -289,16 +296,24 @@ func (d *Deployer) BasicAuth(r *http.Request) (string, error) {
 }
 
 func (d *Deployer) healthCheck(w http.ResponseWriter, r *http.Request) {
+	d.Logger.Infof("incoming request to get deployer healthcheck")
 	_, err := w.Write([]byte("Deployer reporting all ok"))
 	if err != nil {
 		d.Logger.Errorw("Error writing to HTTP response", err)
 	}
+	d.Logger.Infof("request to get deployer healthcheck completed")
 }
 
 // K8sVersionEndpoint returns an endpoint type that is responsible for handling
 // getting kuberenetes cluster version
 func (d *Deployer) K8sVersionEndpoint() func(http.ResponseWriter, *http.Request) {
 	return NewEndpoint(d.ClusterVersionHandler, d.LocalConfig.Logger).ServeHTTP
+}
+
+// ClusterTypeEndpoint returns an endpoint type that is responsible for handling
+// getting the type of the cluster kubernetes or openshift
+func (d *Deployer) ClusterTypeEndpoint() func(http.ResponseWriter, *http.Request) {
+	return NewEndpoint(d.ClusterTypeHandler, d.LocalConfig.Logger).ServeHTTP
 }
 
 func (d *Deployer) VersionEndpoint() func(http.ResponseWriter, *http.Request) {
@@ -327,6 +342,21 @@ func (d *Deployer) GetEndpointSection() func(http.ResponseWriter, *http.Request)
 
 func (d *Deployer) UpdateEndpointSection() func(http.ResponseWriter, *http.Request) {
 	return NewEndpoint(d.UpdateSection, d.LocalConfig.Logger).ServeHTTP
+}
+
+func (d *Deployer) HSMEndpoint(requestType string) func(http.ResponseWriter, *http.Request) {
+	switch requestType {
+	case GET:
+		return NewEndpoint(d.GetHSMConfigEndpoint, d.LocalConfig.Logger).ServeHTTP
+	case POST:
+		return NewEndpoint(d.UpdateHSMConfigEndpoint, d.LocalConfig.Logger).ServeHTTP
+	case PATCH:
+		return NewEndpoint(d.PatchHSMConfigEndpoint, d.LocalConfig.Logger).ServeHTTP
+	case DELETE:
+		return NewEndpoint(d.DeleteHSMConfigEndpoint, d.LocalConfig.Logger).ServeHTTP
+	default:
+		return nil
+	}
 }
 
 func (d *Deployer) PatchEndpointSection() func(http.ResponseWriter, *http.Request) {
@@ -545,6 +575,25 @@ func (d *Deployer) Version(w http.ResponseWriter, r *http.Request) (interface{},
 	return nil, 0, errors.New("Please specify a valid component type")
 }
 
+func (d *Deployer) GetHSMConfigEndpoint(w http.ResponseWriter, r *http.Request) (interface{}, int, error) {
+	return d.Operator.Get(operator.HSMCONFIG, d.Config.Namespace)
+}
+
+func (d *Deployer) UpdateHSMConfigEndpoint(w http.ResponseWriter, r *http.Request) (interface{}, int, error) {
+	// PLACEHOLDER
+	return nil, 0, errors.Errorf("Request type not yet supported: %d", http.StatusBadRequest)
+}
+
+func (d *Deployer) PatchHSMConfigEndpoint(w http.ResponseWriter, r *http.Request) (interface{}, int, error) {
+	// PLACEHOLDER
+	return nil, 0, errors.Errorf("Request type not yet supported: %d", http.StatusBadRequest)
+}
+
+func (d *Deployer) DeleteHSMConfigEndpoint(w http.ResponseWriter, r *http.Request) (interface{}, int, error) {
+	// PLACEHOLDER
+	return nil, 0, errors.Errorf("Request type not yet supported: %d", http.StatusBadRequest)
+}
+
 // ClusterVersionHandler will handle getting kubernetes cluster version
 func (d *Deployer) ClusterVersionHandler(w http.ResponseWriter, r *http.Request) (interface{}, int, error) {
 	version, err := d.K8SClient.GetVersion()
@@ -570,14 +619,17 @@ func (d *Deployer) StopMustgatherEndpoint() func(http.ResponseWriter, *http.Requ
 func (d *Deployer) DownloadMustgatherHandler() func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Essentially proxy the request through to download
+		d.Logger.Infof("incoming request to download mustgater content")
 		resp, respErr := d.Mustgather.Download()
 		if respErr != nil {
 			http.Error(w, respErr.Error(), http.StatusInternalServerError)
+			d.Logger.Errorf("error occured while trying to get response for download file", respErr.Error())
 			return
 		}
 
 		defer func() {
 			if err := resp.Body.Close(); err != nil {
+				d.Logger.Errorf("error occured while trying to send the response file", respErr.Error())
 				return
 			}
 		}()
@@ -589,9 +641,12 @@ func (d *Deployer) DownloadMustgatherHandler() func(http.ResponseWriter, *http.R
 
 		_, writeErr := io.Copy(w, resp.Body)
 		if writeErr != nil {
+			d.Logger.Errorf("error occured while copying response body to writer", writeErr.Error())
 			http.Error(w, writeErr.Error(), http.StatusInternalServerError)
 		}
+		d.Logger.Infof("request to download mustgather completed")
 	}
+
 }
 
 func (d *Deployer) GetMustgatherStatus(w http.ResponseWriter, r *http.Request) (interface{}, int, error) {
@@ -600,11 +655,20 @@ func (d *Deployer) GetMustgatherStatus(w http.ResponseWriter, r *http.Request) (
 }
 
 func (d *Deployer) StartMustgather(w http.ResponseWriter, r *http.Request) (interface{}, int, error) {
+	d.Logger.Infof("incoming request to start mustgather")
 	err := d.Mustgather.Create()
+	d.Logger.Infof("request to start mustgather completed")
 	return nil, 201, err
 }
 
 func (d *Deployer) StopMustgather(w http.ResponseWriter, r *http.Request) (interface{}, int, error) {
+	d.Logger.Infof("incoming request to stop mustgather")
 	err := d.Mustgather.Delete()
+	d.Logger.Infof("request to stop mustgather completed")
 	return nil, 200, err
+}
+
+// ClusterTypeHandler will handle returning the clustertype kubernetes cluster version
+func (d *Deployer) ClusterTypeHandler(w http.ResponseWriter, r *http.Request) (interface{}, int, error) {
+	return d.K8SClient.ClusterType(d.Config.Namespace), 0, nil
 }

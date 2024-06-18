@@ -14,10 +14,9 @@
  * limitations under the License.
 */
 
-import _ from 'lodash';
 import PropTypes from 'prop-types';
 import React, { Component } from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import emptyImage from '../../assets/images/empty_msps.svg';
 import { showError, updateState } from '../../redux/commonActions';
@@ -27,6 +26,7 @@ import ItemContainer from '../ItemContainer/ItemContainer';
 import ItemTileLabels from '../ItemContainerTile/ItemTileLabels/ItemTileLabels';
 import MspDeleteModal from '../MspDeleteModal/MspDeleteModal';
 import SVGs from '../Svgs/Svgs';
+import ActionsHelper from '../../utils/actionsHelper';
 
 const SCOPE = 'ordererMembers';
 
@@ -39,8 +39,8 @@ class OrdererMembers extends Component {
 	}
 
 	buildCustomTile(member) {
-		const node_ou = _.get(member, 'fabric_node_ous.enable') ? 'enabled' : 'disabled';
-		const certificateWarning = node_ou === 'enabled' ? false : Helper.getLongestExpiry(member.admins);
+		const node_ou = Helper.node_ou_is_enabled(member);
+		const certificateWarning = node_ou ? false : Helper.getLongestExpiry(member.admins);
 
 		return (
 			<div>
@@ -147,6 +147,7 @@ class OrdererMembers extends Component {
 								fn: this.openAddMSPModal,
 								label: 'add_organization',
 								text: 'add_organization',
+								disabled: !ActionsHelper.canCreateComponent(this.props.userInfo, this.props.feature_flags),
 							},
 						]}
 						tileMapping={{
@@ -161,7 +162,7 @@ class OrdererMembers extends Component {
 				{this.props.showDeleteModal && (
 					<MspDeleteModal
 						onClose={this.closeDeleteMSPModal}
-						ordererId={this.props.ordererId}
+						clusterId={this.props.clusterId}
 						configtxlator_url={this.props.configtxlator_url}
 						selectedMember={this.props.selectedMember}
 						onComplete={() => {
@@ -171,7 +172,7 @@ class OrdererMembers extends Component {
 				)}
 				{this.props.showAddMSPModal && (
 					<ImportMspModal
-						ordererId={this.props.ordererId}
+						clusterId={this.props.clusterId}
 						configtxlator_url={this.props.configtxlator_url}
 						onClose={this.closeAddMSPModal}
 						onComplete={() => {
@@ -206,10 +207,13 @@ OrdererMembers.propTypes = {
 
 export default connect(
 	state => {
-		return Helper.mapStateToProps(state[SCOPE], dataProps);
+		let newProps = Helper.mapStateToProps(state[SCOPE], dataProps);
+		newProps['userInfo'] = state['userInfo'] ? state['userInfo'] : null;
+		newProps['feature_flags'] = state['settings'] ? state['settings']['feature_flags'] : null;
+		return newProps;
 	},
 	{
 		updateState,
 		showError,
 	}
-)(withLocalize(OrdererMembers));
+)(withTranslation()(OrdererMembers));

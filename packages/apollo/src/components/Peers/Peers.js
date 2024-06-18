@@ -16,7 +16,7 @@
 import _ from 'lodash';
 import PropTypes from 'prop-types';
 import React, { Component } from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import { clearNotifications, showError, showInfo, showSuccess, updateState } from '../../redux/commonActions';
 import IdentityApi from '../../rest/IdentityApi';
@@ -30,6 +30,7 @@ import NodeStatus from '../../utils/status';
 import emptyPeerImage from '../../assets/images/empty_nodes.svg';
 import ItemTileLabels from '../ItemContainerTile/ItemTileLabels/ItemTileLabels';
 import * as constants from '../../utils/constants';
+import withRouter from '../../hoc/withRouter';
 
 const SCOPE = 'peers';
 const Log = new Logger(SCOPE);
@@ -111,7 +112,7 @@ class Peers extends Component {
 	}
 
 	buildCustomTile(peer) {
-		const isPatchAvailable = peer.isUpgradeAvailable && peer.location === 'ibm_saas' && ActionsHelper.canCreateComponent(this.props.userInfo);
+		const isPatchAvailable = peer.isUpgradeAvailable && peer.location === 'ibm_saas' && ActionsHelper.canCreateComponent(this.props.userInfo, this.props.feature_flags);
 
 		return (
 			<div className="ibp-node-peer-tile">
@@ -137,7 +138,7 @@ class Peers extends Component {
 		if (!peer.operations_url) {
 			className = 'ibp-node-status-unretrievable';
 		}
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		return peer && status ? (
 			<div className="ibp-node-status-container">
 				<span className={`ibp-node-status ${className}`}
@@ -168,6 +169,8 @@ class Peers extends Component {
 	};
 
 	openPeerDetails = peer => {
+		// this.props.navigate('/peer', {peerId: peer.id});
+		// this.props.history.push('/peer', {peerId: peer.id});
 		this.props.history.push('/peer/' + encodeURIComponent(peer.id) + window.location.search);
 	};
 
@@ -215,7 +218,7 @@ class Peers extends Component {
 			newPeers.length === 1 ? 'add_peer_successful' : 'add_peers_successful',
 			{
 				peerName: peers.join(', '),
-				peerCloud: this.props.translate(newPeers[0].location),
+				peerCloud: this.props.t(newPeers[0].location),
 			},
 			SCOPE,
 			newPeers.length === 1 ? 'add_peer_successful_description' : 'add_peers_successful_description',
@@ -238,19 +241,17 @@ class Peers extends Component {
 			data['associations'] = associations;
 		}
 		this.props.updateState(SCOPE, data);
-		NodeStatus.getStatus(newPeers, SCOPE, 'peerList');
+		NodeStatus.getStatus(newPeers, SCOPE, 'peerList', null, 50);
 		this.props.clearNotifications(SCOPE + '_HELP');
 	};
 
 	getButtons() {
 		let buttons = [];
-		let importOption = ActionsHelper.canImportComponent(this.props.userInfo) || ActionsHelper.canCreateComponent(this.props.userInfo);
-		if (importOption) {
-			buttons.push({
-				text: this.props.feature_flags?.import_only_enabled ? 'import_only_peer' : 'add_peer',
-				fn: this.openImportPeerModal,
-			});
-		}
+		buttons.push({
+			text: this.props.feature_flags?.import_only_enabled ? 'import_only_peer' : 'add_peer',
+			fn: this.openImportPeerModal,
+			disabled: !ActionsHelper.canImportComponent(this.props.userInfo, this.props.feature_flags) && !ActionsHelper.canCreateComponent(this.props.userInfo, this.props.feature_flags),
+		});
 		return buttons;
 	}
 
@@ -323,7 +324,7 @@ class Peers extends Component {
 									return (
 										<span>
 											<div className={'ibp-table-status ibp-table-status-' + status} />
-											{this.props.translate(status)}
+											{this.props.t(status)}
 										</span>
 									);
 								},
@@ -354,7 +355,7 @@ Peers.propTypes = {
 	showInfo: PropTypes.func,
 	updateState: PropTypes.func,
 	clearNotifications: PropTypes.func,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default connect(
@@ -371,4 +372,4 @@ export default connect(
 		showSuccess,
 		updateState,
 	}
-)(withLocalize(Peers));
+)(withTranslation()(withRouter(Peers)));

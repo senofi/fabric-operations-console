@@ -13,12 +13,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
 */
-import { WarningFilled16 } from '@carbon/icons-react/es';
-import { Checkbox } from 'carbon-components-react';
+import { WarningFilled } from '@carbon/icons-react';
+import { Checkbox } from "@carbon/react";
 import _ from 'lodash';
 import PropTypes from 'prop-types';
 import React from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import { updateState } from '../../redux/commonActions';
 import ChannelApi from '../../rest/ChannelApi';
@@ -176,7 +176,9 @@ class UpdateChannelMspModal extends React.Component {
 			disableSubmit: !this.props.isOrdererMSP,
 		});
 	}
+
 	async onSelectMSP(event) {
+		await this.populateMSPAdmins();
 		if (event.selectedMsp) {
 			this.populateMSP(event.selectedMsp);
 		}
@@ -194,6 +196,13 @@ class UpdateChannelMspModal extends React.Component {
 	setError(error) {
 		this.props.updateState(SCOPE, { error });
 		this.props.updateState('wizard', { error });
+	}
+
+	onCancel = () => {
+		this.props.updateState(SCOPE, {
+			submit_identity_options: null,
+		});
+		this.props.onClose();
 	}
 
 	onSubmit = () => {
@@ -263,6 +272,9 @@ class UpdateChannelMspModal extends React.Component {
 						Log.info('Channel was updated successfully: ', resp);
 						this.props.onComplete(this.props.msp.id || this.props.msp.msp_id, this.props.isOrdererMSP);
 						resolve();
+						this.props.updateState(SCOPE, {
+							submit_identity_options: null,
+						});
 					})
 					.catch(error => {
 						Log.error(error);
@@ -281,6 +293,7 @@ class UpdateChannelMspModal extends React.Component {
 						this.props.updateState(SCOPE, {
 							loading: false,
 							disableSubmit: false,
+							submit_identity_options: null,
 						});
 						reject({
 							title: error_msg,
@@ -331,6 +344,21 @@ class UpdateChannelMspModal extends React.Component {
 				default: 'select_msp_id',
 			},
 		];
+		if (this.props.submit_identity_options && !this.props.isOrdererMSP && this.props.adminIdentites) {
+			fields.push({
+				label: 'msp_admin_type_label',
+				name: 'admin_identity',
+				type: 'component',
+				default:
+					this.props.adminIdentites.map((val, idx) =>
+						<div key={idx}>
+							<p className='admin-identity-name'>{val}</p>
+						</div>),
+				readonly: true,
+				tooltip: 'msp_admin_type_tooltip',
+				tooltipDirection: 'top',
+			});
+		}
 		if (!this.props.isOrdererMSP) {
 			fields.push({
 				name: 'submit_identity',
@@ -341,6 +369,28 @@ class UpdateChannelMspModal extends React.Component {
 			});
 		}
 		return fields;
+	}
+
+	populateMSPAdmins() {
+		const mspCerts = [];
+		const admin_identites = [];
+		if (this.props.orgNodes && this.props.orgNodes[this.props.msp.id]) {
+			mspCerts.root_certs = this.props.orgNodes[this.props.msp.id].values_map.MSP.value.root_certs_list;
+			mspCerts.intermediate_certs = this.props.orgNodes[this.props.msp.id].values_map.MSP.value.intermediate_certs_list;
+			IdentityApi.getIdentitiesForMsp(mspCerts).then(mspIdentities => {
+				mspIdentities.forEach(value => {
+					const parsed_msp_cert = StitchApi.parseCertificate(value.cert);
+					if (admin_identites.length < 6) {
+						if (parsed_msp_cert.subject_parts.OU === 'admin') {
+							admin_identites.push(value.name);
+						}
+					}
+					this.props.updateState(SCOPE, {
+						adminIdentites: admin_identites,
+					});
+				});
+			});
+		}
 	}
 
 	renderUploadMSPDefinition(translate) {
@@ -405,7 +455,7 @@ class UpdateChannelMspModal extends React.Component {
 			<div className="ibp-modal-desc">
 				{days !== undefined && days < constants.CERTIFICATE_WARNING_DAYS ? (
 					<p className="ibp-msp-cert-expiry">
-						<WarningFilled16 />
+						<WarningFilled size={16} />
 						{translate('admin_certs_expiry') + ': ' + Helper.fromNow(last, translate)}
 					</p>
 				) : (
@@ -430,13 +480,13 @@ class UpdateChannelMspModal extends React.Component {
 	}
 
 	render() {
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		return (
 			<Wizard
 				title="update_msp_definition"
 				disable_focus_trap={true}
 				loading={this.props.loading}
-				onClose={this.props.onClose}
+				onClose={this.onCancel}
 				onSubmit={this.onSubmit}
 				submitButtonLabel={translate('update_msp_definition')}
 				error={this.props.error}
@@ -452,6 +502,7 @@ class UpdateChannelMspModal extends React.Component {
 
 const dataProps = {
 	loading: PropTypes.bool,
+	adminIdentites: PropTypes.array,
 	error: PropTypes.string,
 	msps: PropTypes.array,
 	orderers: PropTypes.array,
@@ -484,7 +535,7 @@ UpdateChannelMspModal.propTypes = {
 	onComplete: PropTypes.func,
 	onClose: PropTypes.func,
 	updateState: PropTypes.func,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default connect(
@@ -496,4 +547,4 @@ export default connect(
 	{
 		updateState,
 	}
-)(withLocalize(UpdateChannelMspModal));
+)(withTranslation()(UpdateChannelMspModal));

@@ -23,7 +23,7 @@ module.exports = function (logger, t, noInterval, noAutoRun) {
 	const update_min = 90;
 	const update_ms = 1000 * 60 * update_min;		// time in ms to fetch new settings (note new settings will be pushed to athena under normal conditions)
 	const db_names = [];
-	let update_debounce = null;
+	// let update_debounce = null;
 	let cbs = [];
 
 	let settings = {											// defaults env settings
@@ -40,6 +40,8 @@ module.exports = function (logger, t, noInterval, noAutoRun) {
 	if (!noAutoRun) {
 		check_starting_envs(process.env);
 	}
+
+	// sets ev.DB_CONNECTION_STRING and ev.DB_SYSTEM (and any other env var) from the env settings
 	for (const key in settings) {									// overwrite settings[key] with env[key] if env[key] exists
 		if (process.env[key]) { settings[key] = process.env[key]; }	// gets replaced here
 	}
@@ -66,21 +68,21 @@ module.exports = function (logger, t, noInterval, noAutoRun) {
 			exitIfError: true,
 		}
 	*/
-	settings.update = function (options, cb) {
-		clearTimeout(update_debounce);
+	settings.update = async (options, cb) => {
+		// clearTimeout(update_debounce);
 		//logger.debug('[settings] - debouncing settings update'); // removed - minimize logs
 		if (cb) {
 			cbs.push(cb);								// remember our callback
 		}
 
-		update_debounce = setTimeout(() => {			// debounce the update function
-			settings.update_settings(options, (err, resp) => {
-				for (let i in cbs) {					// hit all callbacks
-					cbs[i](err, resp);
-				}
-				cbs = [];								// clear all callbacks
-			});
-		}, 200);
+		// update_debounce = setTimeout(() => {			// debounce the update function
+		settings.update_settings(options, (err, resp) => {
+			for (let i in cbs) {					// hit all callbacks
+				cbs[i](err, resp);
+			}
+			cbs = [];								// clear all callbacks
+		});
+		// }, 200);
 	};
 
 	settings.update_settings = (options, cb) => {
@@ -138,10 +140,10 @@ module.exports = function (logger, t, noInterval, noAutoRun) {
 
 				// ---- pull from ATHENA settings doc ---- //
 				settings.AUTH_SCHEME = process.env.AUTH_SCHEME || athena.auth_scheme;	// if we are using appid or ibmid or something else
-				settings.HOST_URL = process.env.HOST_URL || athena.host_url;			// the external url to reach this application
+				settings.HOST_URL = t.misc.format_url(process.env.HOST_URL || athena.host_url);	// the external url to reach this application
 				settings.REGION = process.env.REGION || athena.region;
 				settings.db_defaults = athena.db_defaults;
-				load_database_names(athena.db_defaults);							// load all db names here
+				load_database_names(athena);										// load all db names here
 				settings.ENFORCE_BACKEND_SSL = athena.enforce_backend_ssl;			// should we check certs or not, server side
 				settings.ACCESS_LIST = lowercase_key_values(athena.access_list);	// athena access list
 				settings.INITIAL_ADMIN = athena.initial_admin;
@@ -158,32 +160,32 @@ module.exports = function (logger, t, noInterval, noAutoRun) {
 				settings.FEATURE_FLAGS = athena.feature_flags;						// features needed conditionally, object
 				settings.FILE_LOGGING = athena.file_logging;						// file logging settings are here, object
 				settings.LANDING_URL = athena.landing_url || settings.HOST_URL;		// use host url if landing url dne
-				settings.DEPLOYER_URL = athena.deployer_url;						// url to use for a SaaS deployer
-				settings.JUPITER_URL = athena.jupiter_url;							// url to use for a SaaS jupiter
+				settings.DEPLOYER_URL = t.misc.format_url(athena.deployer_url, { useIpv4: true });	// url to use for a the deployer
+				settings.JUPITER_URL = t.misc.format_url(athena.jupiter_url, { useIpv4: true });	// url to use for a SaaS jupiter
 				settings.SUPPORT_KEY = athena.support_key || 'ibpsupport';
 				settings.SUPPORT_PASSWORD = athena.support_password || t.misc.generateRandomString(16).toLowerCase();
-				settings.PROXY_TLS_HTTP_URL = fmt_url(athena.proxy_tls_http_url || settings.HOST_URL);	// the external url to proxy http fabric traffic to
-				settings.PROXY_TLS_WS_URL = fmt_url(athena.proxy_tls_ws_url || settings.HOST_URL);		// the external url to proxy ws fabric traffic to
+				settings.PROXY_TLS_HTTP_URL = fmt_proxy_url(athena.proxy_tls_http_url) || settings.HOST_URL; // the external url to proxy http fabric traffic to
+				settings.PROXY_TLS_WS_URL = fmt_proxy_url(athena.proxy_tls_ws_url) || settings.HOST_URL;	 // the external url to proxy ws fabric traffic to
 				settings.PROXY_TLS_FABRIC_REQS = athena.proxy_tls_fabric_reqs;		// if athena should proxy fabric traffic or not
-				settings.HTTP_TIMEOUT = !isNaN(athena.http_timeout) ? Number(athena.http_timeout) : 2 * 60 * 1000;		// max time in ms for athena to respond
+
+				// backend timeouts (all should be in milliseconds)
+				settings.HTTP_TIMEOUT = !isNaN(athena.http_timeout) ? Number(athena.http_timeout) : 2 * 60 * 1000;		// max time for athena 2 resp to any req
 				settings.WS_TIMEOUT = !isNaN(athena.ws_timeout) ? Number(athena.ws_timeout) : settings.HTTP_TIMEOUT;	// defaults to http timeout
-				settings.DEPLOYER_TIMEOUT = !isNaN(athena.deployer_timeout) ? Number(athena.deployer_timeout) : 90000;	// max time in ms for dep to respond
-				settings.CONFIGTXLATOR_TIMEOUT = !isNaN(athena.configtxlator_timeout) ? Number(athena.configtxlator_timeout) : 90000;
-				settings.GRPCWPP_TIMEOUT = !isNaN(athena.grpcwpp_timeout) ? Number(athena.grpcwpp_timeout) : 300000;
-				settings.CA_PROXY_TIMEOUT = !isNaN(athena.ca_proxy_timeout) ? Number(athena.ca_proxy_timeout) : 10000;
-				settings.HTTP_STATUS_TIMEOUT = !isNaN(athena.http_status_timeout) ? Number(athena.http_status_timeout) : 1000;	// max time respond 2 status req
-				settings.HTTP_METRICS_WAIT = !isNaN(athena.http_metrics_wait) ? Number(athena.http_metrics_wait) : 3000;
+				settings.DEPLOYER_TIMEOUT = !isNaN(athena.deployer_timeout) ? Number(athena.deployer_timeout) : 105 * 1000; // max time for dep to resp
+				settings.CONFIGTXLATOR_TIMEOUT = !isNaN(athena.configtxlator_timeout) ? Number(athena.configtxlator_timeout) : 1 * 60 * 1000;
+				settings.HTTP_STATUS_TIMEOUT = !isNaN(athena.http_status_timeout) ? Number(athena.http_status_timeout) : 3 * 1000; // max time for status req
+
+				settings.HTTP_METRICS_WAIT = !isNaN(athena.http_metrics_wait) ? Number(athena.http_metrics_wait) : 3 * 1000;
 				settings.ENVIRONMENT = athena.environment;
-				settings.INFRASTRUCTURE = athena.infrastructure;
+				settings.INFRASTRUCTURE = athena.infrastructure || '';
 				settings.TRANSACTION_VISIBILITY = athena.transaction_visibility;											// brian wanted this to toggle tx
 				settings.IAM_API_KEY = process.env.IAM_API_KEY || athena.iam_api_key;										// ibp's api key for IAM
-				settings.BACKEND_ADDRESS_TIMEOUT_MS = !isNaN(athena.backend_address_timeout_ms) ? Number(athena.backend_address_timeout_ms) : 3000;
 				settings.CSP_HEADER_VALUES = Array.isArray(athena.csp_header_values) ? athena.csp_header_values : ['default-src \'self\''];
 				settings.MAX_REQ_PER_MIN = !isNaN(athena.max_req_per_min) ? Number(athena.max_req_per_min) : 25;			// http rate limit (general APIs)
 				settings.MAX_REQ_PER_MIN_AK = !isNaN(athena.max_req_per_min_ak) ? Number(athena.max_req_per_min_ak) : 25;	// http rate limit (api key APIs)
 				settings.CLUSTER_DATA = athena.cluster_data;
 				settings.IGNORE_CONFIG_FILE = athena.ignore_config_file;
-				settings.HOST_WHITE_LIST = Array.isArray(athena.host_white_list) ? athena.host_white_list : ['.*'];	// regex hostnames that we can talk to
+				settings.URL_SAFE_LIST = Array.isArray(athena.url_safe_list) ? athena.url_safe_list : ['.*'];	// regex hostnames that we can talk to
 				settings.DEFAULT_USER_PASSWORD_INITIAL = process.env.DEFAULT_USER_PASSWORD_INITIAL || athena.default_user_password_initial;
 				settings.FABRIC_CAPABILITIES = athena.fabric_capabilities;
 				settings.MIN_PASSWORD_LEN = !isNaN(athena.min_password_len) ? Number(athena.min_password_len) : 10;
@@ -216,7 +218,6 @@ module.exports = function (logger, t, noInterval, noAutoRun) {
 				settings.THE_DEFAULT_RESOURCES_MAP = athena.the_default_resources_map;
 				settings.HTTP_METRICS_ENABLED = athena.http_metrics_enabled;
 				settings.SEGMENT_WRITE_KEY = athena.segment_write_key;
-				settings.ACTIVITY_TRACKER_PATH = athena.activity_tracker_path;
 				settings.MAX_COMPONENTS = !isNaN(athena.max_components) ? Number(athena.max_components) : 75;
 				settings.IMPORT_ONLY = athena.feature_flags ? athena.feature_flags.import_only_enabled : false;
 				settings.READ_ONLY = athena.feature_flags ? athena.feature_flags.read_only_enabled : false;
@@ -237,11 +238,11 @@ module.exports = function (logger, t, noInterval, noAutoRun) {
 					c_name: athena.crn.c_name || 'bluemix',
 					c_type: athena.crn.c_type || 'public',
 					service_name: athena.crn.service_name || 'blockchain',
-					location: athena.crn.location,
-					account_id: athena.crn.account_id,								// fairly important field
-					instance_id: athena.crn.instance_id,							// this one's important, aka iid
-					resource_type: athena.crn.resource_type,
-					resource_id: athena.crn.resource_id,
+					location: athena.crn.location || '',
+					account_id: athena.crn.account_id || '',						// fairly important field
+					instance_id: athena.crn.instance_id || '',						// this one's important, aka iid
+					resource_type: athena.crn.resource_type || '',
+					resource_id: athena.crn.resource_id || '',
 				};
 				// example str: 'crn:v1:bluemix:public:blockchain:us-south:' + account_id + ':' + instance_id + '::';
 				settings.CRN_STRING = 'crn:' + settings.CRN.version +				// final build of CRN string
@@ -281,6 +282,11 @@ module.exports = function (logger, t, noInterval, noAutoRun) {
 				if (!settings.FABRIC_CAPABILITIES.channel) { settings.FABRIC_CAPABILITIES.channel = []; }
 				if (!settings.FABRIC_CAPABILITIES.orderer) { settings.FABRIC_CAPABILITIES.orderer = []; }
 
+				// the type of console build we are in
+				settings.CONSOLE_TYPE = settings.getConsoleType(athena) || 'hlfoc';	// valid options, "hlfoc", "ibp", "support"
+				// the source of an ibm console image build, not always set
+				settings.CONSOLE_BUILD_TYPE = athena.console_build_type || '';			// valid options, "saas", "non-saas", empty string
+
 				// set constants here
 				settings.STR = {
 					MSP: 'msp',
@@ -307,7 +313,7 @@ module.exports = function (logger, t, noInterval, noAutoRun) {
 					RAFT: 'etcdraft',									// deployer uses this value for orderertype
 					ATHENA_RAFT: 'raft',								// athena uses this value for orderer_type
 					CREATE_ACTION: 'blockchain.components.create',
-					DELETE_ACTION: 'blockchain.components.delete',		// delete is for saas/created
+					DELETE_ACTION: 'blockchain.components.delete',		// delete is for deployed
 					REMOVE_ACTION: 'blockchain.components.remove',		// remove is for imported
 					IMPORT_ACTION: 'blockchain.components.import',
 					EXPORT_ACTION: 'blockchain.components.export',
@@ -331,8 +337,11 @@ module.exports = function (logger, t, noInterval, noAutoRun) {
 					ARCHIVED_VIEW: 'active_notifications_by_ts',
 					ALL_NOTICES_VIEW: 'all_notifications_by_ts',
 					LOCATION_IBP_SAAS: 'ibm_saas',						// indicates this node was created via our deployer from a IBP saas OpTools
-					INFRA_IBP_SAAS: 'ibmcloud',							// indicates that this siid is being hosted by the IBP saas service
+					INFRA_IBP_SAAS: 'ibmcloud',							// indicates that deployed components will be hosted by IBM cloud using IKS
+					INFRA_OPENSHIFT: 'openshift',						// indicates that deployed components will be hosted by redhat openshift
+					INFRA_K8S: 'k8s',									// indicates that deployed components will be hosted by generic kubernetes
 					PAID_K8S: 'paid',
+					OPEN_SOURCE_STYLE: 'os',							// "os" means an open-source style url should be returned for this saas/migrated comp
 					GET_ALL_COMPONENTS_KEY: 'GET /api/vx/instance/iid/type/all',
 					GET_FAB_VERSIONS_KEY: 'GET /api/vx/instance/iid/type/all/versions',
 					EVENT_COMP_DEL: 'component_delete',					// delete event is for k8s delete
@@ -424,23 +433,35 @@ module.exports = function (logger, t, noInterval, noAutoRun) {
 					TOKEN_URL: athena.oauth ? athena.oauth.token_url : null,
 					CLIENT_ID: athena.oauth ? athena.oauth.client_id : null,
 					CLIENT_SECRET: athena.oauth ? athena.oauth.client_secret : null,
-					RESPONSE_TYPE: athena.oauth ? athena.oauth.response_type : null,
-					GRANT_TYPE: athena.oauth ? athena.oauth.grant_type : null,
+					RESPONSE_TYPE: (athena.oauth ? athena.oauth.response_type : null) || 'code',
+					GRANT_TYPE: (athena.oauth ? athena.oauth.grant_type : null) || 'authorization_code',
+					SCOPE: (athena.oauth ? athena.oauth.scope : null) || 'openid email profile',
+					DEBUG: athena.oauth ? (athena.oauth.debug === true) : false,
 				};
 
 				if (typeof settings.DEFAULT_USER_PASSWORD === 'string') {
 					settings.DEFAULT_USER_PASSWORD = settings.DEFAULT_USER_PASSWORD.trim();	// remove things like fat thumbed tabs and new lines
 				}
 
-				// fabric timeout settings
-				settings.FABRIC_GET_BLOCK_TIMEOUT_MS = !isNaN(athena.fabric_get_block_timeout_ms) ? Number(athena.fabric_get_block_timeout_ms) : 10000;
-				settings.FABRIC_INSTANTIATE_TIMEOUT_MS = !isNaN(athena.fabric_instantiate_timeout_ms) ? Number(athena.fabric_instantiate_timeout_ms) : 300000;
-				settings.FABRIC_JOIN_CHANNEL_TIMEOUT_MS = !isNaN(athena.fabric_join_channel_timeout_ms) ? Number(athena.fabric_join_channel_timeout_ms) : 25000;
-				settings.FABRIC_INSTALL_CC_TIMEOUT_MS = !isNaN(athena.fabric_install_cc_timeout_ms) ? Number(athena.fabric_install_cc_timeout_ms) : 300000;
-				settings.FABRIC_LC_INSTALL_CC_TIMEOUT_MS = !isNaN(athena.fabric_lc_install_cc_timeout_ms) ?
-					Number(athena.fabric_lc_install_cc_timeout_ms) : 300000;
-				settings.FABRIC_GENERAL_TIMEOUT_MS = !isNaN(athena.fabric_general_timeout_ms) ? Number(athena.fabric_general_timeout_ms) : 10000;
-				settings.FABRIC_LC_GET_CC_TIMEOUT_MS = !isNaN(athena.fabric_lc_get_cc_timeout_ms) ? Number(athena.fabric_lc_get_cc_timeout_ms) : 180000;
+				// client side (fabric request) timeout settings
+				settings.FABRIC_GET_BLOCK_TIMEOUT_MS
+					= !isNaN(athena.fabric_get_block_timeout_ms) ? Number(athena.fabric_get_block_timeout_ms) : 10 * 1000;
+				settings.FABRIC_GET_CC_TIMEOUT_MS
+					= !isNaN(athena.fabric_get_cc_timeout_ms) ? Number(athena.fabric_get_cc_timeout_ms) : 20 * 1000;
+				settings.FABRIC_INSTANTIATE_TIMEOUT_MS
+					= !isNaN(athena.fabric_instantiate_timeout_ms) ? Number(athena.fabric_instantiate_timeout_ms) : 5 * 60 * 1000;
+				settings.FABRIC_JOIN_CHANNEL_TIMEOUT_MS
+					= !isNaN(athena.fabric_join_channel_timeout_ms) ? Number(athena.fabric_join_channel_timeout_ms) : 30 * 1000;
+				settings.FABRIC_INSTALL_CC_TIMEOUT_MS
+					= !isNaN(athena.fabric_install_cc_timeout_ms) ? Number(athena.fabric_install_cc_timeout_ms) : 5 * 60 * 1000;
+				settings.FABRIC_LC_INSTALL_CC_TIMEOUT_MS
+					= !isNaN(athena.fabric_lc_install_cc_timeout_ms) ? Number(athena.fabric_lc_install_cc_timeout_ms) : 5 * 60 * 1000;
+				settings.FABRIC_GENERAL_TIMEOUT_MS
+					= !isNaN(athena.fabric_general_timeout_ms) ? Number(athena.fabric_general_timeout_ms) : 10 * 1000;
+				settings.FABRIC_LC_GET_CC_TIMEOUT_MS
+					= !isNaN(athena.fabric_lc_get_cc_timeout_ms) ? Number(athena.fabric_lc_get_cc_timeout_ms) : 2 * 60 * 1000;
+				settings.FABRIC_CA_TIMEOUT_MS
+					= !isNaN(athena.fabric_ca_timeout_ms) ? Number(athena.fabric_ca_timeout_ms) : 5 * 1000;
 
 				//-----------------------------
 				// Set Other Settings
@@ -522,6 +543,8 @@ module.exports = function (logger, t, noInterval, noAutoRun) {
 			}
 		});
 
+
+
 		//-----------------------------
 		// Check the settings one more time
 		//-----------------------------
@@ -540,12 +563,12 @@ module.exports = function (logger, t, noInterval, noAutoRun) {
 			});
 		}
 
-		// if user is attempting a relative/abs path of athena (no http://bla.com) then return blank
-		function fmt_url(url) {
+		// if user is attempting a relative/abs path of athena (no http://bla.com) then return blank (which will use the host_url instead)
+		function fmt_proxy_url(url) {
 			if (!url || url === '/' || url === './') {
 				return '';
 			} else {
-				return url;				// else leave it alone
+				return t.misc.format_url(url);				// else leave it alone
 			}
 		}
 
@@ -561,12 +584,26 @@ module.exports = function (logger, t, noInterval, noAutoRun) {
 		}
 
 		// load each database name
-		function load_database_names(dbs) {
+		// this sets setting fields: DB_COMPONENTS, & DB_SESSIONS
+		function load_database_names(settings_doc) {
+			const dbs = settings_doc.db_defaults;
+			const db_custom_names = settings_doc.db_custom_names;
 			if (dbs) {
-				for (let db_const in dbs) {
-					if (dbs[db_const].name) {			// set it if if a db name is set
-						settings[db_const] = dbs[db_const].name;
-						db_names.push(dbs[db_const].name);
+				for (let db_name in dbs) {
+					if (db_name !== 'DB_SYSTEM') {				// the system db should be left driven by process.env.DB_SYSTEM
+						if (dbs[db_name].name) {
+							let name2use = dbs[db_name].name;
+							if (db_custom_names && db_custom_names[db_name] && typeof db_custom_names[db_name] === 'string') {
+								name2use = db_custom_names[db_name];
+							}
+
+							if (settings[db_name] !== name2use) {	// if its changed, log it
+								logger.debug('[settings] custom db name:', db_name, '->', db_custom_names[db_name]);
+							}
+
+							settings[db_name] = name2use;
+							db_names.push(name2use);
+						}
 					}
 				}
 			}
@@ -678,7 +715,7 @@ module.exports = function (logger, t, noInterval, noAutoRun) {
 
 		if (env.AUTH_SCHEME) {									// truthy check is above, check value here
 			env.AUTH_SCHEME = env.AUTH_SCHEME.toLowerCase();
-			const valid = ['ibmid', 'iam', 'appid', 'initial', 'couchdb', 'ldap', 'oidc'];
+			const valid = ['initial', 'iam', 'couchdb', 'ldap', 'oidc', 'oauth'];
 			if (valid.indexOf(env.AUTH_SCHEME) === -1) {
 				errors.push('setup error: AUTH_SCHEME is not valid: ' + env.AUTH_SCHEME);
 			}
@@ -710,10 +747,27 @@ module.exports = function (logger, t, noInterval, noAutoRun) {
 			logger.error('---------------------------------------------------------\n');
 			return cb({ error: 'missing vars', details: errors });
 		} else {
-			logger.info('[settings] final env variables look good!');
+			//logger.info('[settings] final env variables look good!');
 			return cb(null);
 		}
 	}
+
+	// --------------------------------------------------------------------------------------------
+	// detect the correct console image type - returns one of "hlfoc", "ibp", "support"
+	// --------------------------------------------------------------------------------------------
+	settings.getConsoleType = (settings_doc) => {
+		let console_type = 'hlfoc';										// default console type is hyperledger fabric operations console (our open source one)
+
+		if (settings_doc) {
+			if (settings_doc.console_build_type === 'non-saas') {
+				console_type = 'support';
+			} else if (settings_doc.console_build_type === 'saas') {
+				console_type = 'ibp';
+			}
+		}
+
+		return console_type;
+	};
 
 	// --------------------------------------------------------------------------------------------
 	// Get IAM endpoints - [will return defaults if iam endpoint is misbehaving]

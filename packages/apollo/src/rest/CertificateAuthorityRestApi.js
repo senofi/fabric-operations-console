@@ -20,6 +20,7 @@ import Helper from '../utils/helper';
 import IdentityApi from './IdentityApi';
 import { NodeRestApi } from './NodeRestApi';
 import { RestApi } from './RestApi';
+import { EventsRestApi } from './EventsRestApi';
 const naturalSort = require('javascript-natural-sort');
 const Log = new Logger('CertificateAuthorityRestApi');
 
@@ -31,7 +32,7 @@ const ipRegex = /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[
 class CertificateAuthorityRestApi {
 	static rootCerts = {};
 	static async getCAs(skip_cache) {
-		return NodeRestApi.getNodes('fabric-ca', skip_cache);
+		return NodeRestApi.getNodes(['fabric-ca'], skip_cache);
 	}
 
 	/**
@@ -60,6 +61,9 @@ class CertificateAuthorityRestApi {
 					},
 				},
 				migrated_from: some_ca_record.migrated_from ? some_ca_record.migrated_from : undefined,
+				imported: some_ca_record.imported ? some_ca_record.imported : undefined,
+				cluster_type: some_ca_record.cluster_type ? some_ca_record.cluster_type : undefined,
+				console_type: some_ca_record.console_type ? some_ca_record.console_type : undefined,
 			};
 			return NodeRestApi.importComponent(exported_ca);
 		});
@@ -202,16 +206,18 @@ class CertificateAuthorityRestApi {
 		try {
 			const deleteCaIdentity = promisify(window.stitch.deleteCaIdentity);
 			const resp = await deleteCaIdentity(opts);
+			EventsRestApi.sendDeleteUserEvent(enroll_id, ca);
 			result = resp.data;
 		} catch (error) {
 			Log.error(error);
+			EventsRestApi.sendDeleteUserEvent(enroll_id, ca, 'error');
 			throw error;
 		}
 		return result;
 	}
 
-	static async getCADetails(id, includePrivateKeyAndCert) {
-		return NodeRestApi.getNodeDetails(id, includePrivateKeyAndCert);
+	static async getCADetails(id, includePrivateKeyAndCert, skip_cache) {
+		return NodeRestApi.getNodeDetails(id, includePrivateKeyAndCert, skip_cache);
 	}
 
 	static getAffiliationsFromResponseData(data) {
@@ -277,7 +283,7 @@ class CertificateAuthorityRestApi {
 			if (ca.replicas) {
 				data.replicas = ca.replicas;
 			}
-			const url = `/api/saas/v2/components/${ca.id}`;
+			const url = `/api/v2/kubernetes/components/${ca.id}`;
 			await RestApi.put(url, data);
 		}
 		return ca;

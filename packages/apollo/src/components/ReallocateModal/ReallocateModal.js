@@ -16,7 +16,7 @@
 import _ from 'lodash';
 import PropTypes from 'prop-types';
 import React from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import { updateState } from '../../redux/commonActions';
 import { NodeRestApi } from '../../rest/NodeRestApi';
@@ -57,19 +57,21 @@ class ReallocateModal extends React.Component {
 			return undefined;
 		}
 		const usage = { valid: true };
-		if (this.props.usageInfo.resources[category]) {
-			usage.cpu = this.normalizeCpu(this.props.usageInfo.resources[category].requests.cpu);
-			usage.memory = this.normalizeMemory(this.props.usageInfo.resources[category].requests.memory);
-		}
-		let type = category === 'leveldb' || category === 'couchdb' ? 'statedb' : category; // LevelDB storage is also stored under couchdb
-		if (!this.props.usageInfo.storage[type] && category === 'leveldb') {
-			type = 'leveldb';
-		}
-		if (!this.props.usageInfo.storage[type] && (category === 'leveldb' || category === 'couchdb')) {
-			type = 'couchdb';
-		}
-		if (this.props.usageInfo.storage[type]) {
-			usage.storage = this.normalizeStorage(this.props.usageInfo.storage[type].size);
+		if (this.props.usageInfo) {
+			if (this.props.usageInfo.resources[category]) {
+				usage.cpu = this.normalizeCpu(this.props.usageInfo.resources[category].requests.cpu);
+				usage.memory = this.normalizeMemory(this.props.usageInfo.resources[category].requests.memory);
+			}
+			let type = category === 'leveldb' || category === 'couchdb' ? 'statedb' : category; // LevelDB storage is also stored under couchdb
+			if (!this.props.usageInfo.storage[type] && category === 'leveldb') {
+				type = 'leveldb';
+			}
+			if (!this.props.usageInfo.storage[type] && (category === 'leveldb' || category === 'couchdb')) {
+				type = 'couchdb';
+			}
+			if (this.props.usageInfo.storage[type]) {
+				usage.storage = this.normalizeStorage(this.props.usageInfo.storage[type].size);
+			}
 		}
 		return usage;
 	}
@@ -243,7 +245,7 @@ class ReallocateModal extends React.Component {
 
 	render() {
 		let isCouchStateDb = !this.props.details.state_db || this.props.details.state_db === 'couchdb';
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		return (
 			<Wizard
 				title="resource_allocation"
@@ -295,7 +297,7 @@ ReallocateModal.propTypes = {
 	onClose: PropTypes.func,
 	updateState: PropTypes.func,
 	ignore: PropTypes.array,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default connect(
@@ -305,4 +307,4 @@ export default connect(
 	{
 		updateState,
 	}
-)(withLocalize(ReallocateModal));
+)(withTranslation()(ReallocateModal));

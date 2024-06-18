@@ -13,11 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
 */
-import { Button, NumberInputSkeleton, ToggleSmall } from 'carbon-components-react';
+import { Button, NumberInputSkeleton, Toggle, DropdownSkeleton, ToggleSmallSkeleton } from "@carbon/react";
 import _ from 'lodash';
 import PropTypes from 'prop-types';
 import React, { Component } from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import { clearNotifications, showBreadcrumb, showError, updateState, showSuccess } from '../../redux/commonActions';
 import SettingsApi from '../../rest/SettingsApi';
@@ -30,8 +30,11 @@ import ImportModal from '../ImportModal/ImportModal';
 import Logger from '../Log/Logger';
 import PageContainer from '../PageContainer/PageContainer';
 import PageHeader from '../PageHeader/PageHeader';
-import DropdownSkeleton from 'carbon-components-react/lib/components/Dropdown/Dropdown.Skeleton';
-import ToggleSmallSkeleton from 'carbon-components-react/lib/components/ToggleSmall/ToggleSmall.Skeleton';
+import { NodeRestApi } from '../../rest/NodeRestApi';
+import IdentityApi from '../../rest/IdentityApi';
+import SidePanel from '../SidePanel/SidePanel';
+import { EventsRestApi } from '../../rest/EventsRestApi';
+import withRouter from '../../hoc/withRouter';
 
 const SCOPE = 'comp_settings';
 const Log = new Logger(SCOPE);
@@ -43,6 +46,7 @@ const MINIMUM_MAX_IDLE_TIME = Math.floor(30);
 const MAXIMUM_MAX_IDLE_TIME = Math.floor(8 * 60 * 60);
 let progressInterval = null;
 let giveUpTimer = null;
+let txtTimer = null;
 
 export class Settings extends Component {
 	componentDidMount() {
@@ -59,6 +63,8 @@ export class Settings extends Component {
 			changed: {},
 			loading: true,
 			saving: false,
+			showConfirmation: false,
+			txt_state: 0,
 		});
 		this.getSettings();
 	}
@@ -212,7 +218,7 @@ export class Settings extends Component {
 							<div className="settings-toggle-inner">
 								{this.props.loading && <ToggleSmallSkeleton />}
 								{!this.props.loading && (
-									<ToggleSmall
+									<Toggle size="sm"
 										id="toggle-input"
 										toggled={!this.props.hide_transaction_input}
 										onToggle={() => {
@@ -239,7 +245,7 @@ export class Settings extends Component {
 							<div className="settings-toggle-inner">
 								{this.props.loading && <ToggleSmallSkeleton />}
 								{!this.props.loading && (
-									<ToggleSmall
+									<Toggle size="sm"
 										id="toggle-output"
 										toggled={!this.props.hide_transaction_output}
 										onToggle={() => {
@@ -293,7 +299,7 @@ export class Settings extends Component {
 							{this.props.loading && <ToggleSmallSkeleton />}
 							{!this.props.loading && (
 								<div className="settings-toggle-inner">
-									<ToggleSmall
+									<Toggle size="sm"
 										id="toggle-client-logging"
 										toggled={this.props.client_log_enabled}
 										onToggle={() => {
@@ -357,7 +363,7 @@ export class Settings extends Component {
 							{this.props.loading && <ToggleSmallSkeleton />}
 							{!this.props.loading && (
 								<div className="settings-toggle-inner">
-									<ToggleSmall
+									<Toggle size="sm"
 										id="toggle-server-logging"
 										toggled={this.props.server_log_enabled}
 										onToggle={() => {
@@ -428,7 +434,7 @@ export class Settings extends Component {
 							{this.props.loading && <ToggleSmallSkeleton />}
 							{!this.props.loading && (
 								<div className="settings-toggle-inner">
-									<ToggleSmall
+									<Toggle size="sm"
 										id="toggle-inactivity-timeouts"
 										toggled={this.props.max_idle_time_enabled}
 										onToggle={() => {
@@ -508,7 +514,7 @@ export class Settings extends Component {
 						>
 							{translate('export')}
 						</Button>
-						{ActionsHelper.canImportComponent(this.props.userInfo) && (
+						{ActionsHelper.canImportComponent(this.props.userInfo, this.props.feature_flags) && (
 							<Button
 								id="data_import_button"
 								disabled={this.props.saving}
@@ -546,45 +552,223 @@ export class Settings extends Component {
 		);
 	}
 
-	render = () => {
-		const translate = this.props.translate;
-		const progress_width = isNaN(this.props.width) ? 0 : this.props.width;
+	// show the delete buttons
+	renderDeleteSection(translate) {
+		if (!ActionsHelper.canDeleteComponent(this.props.userInfo) && !ActionsHelper.canImportComponent(this.props.userInfo)) {
+			return;			// don't show if user is not a manager or writer
+		}
+
+		// if we are opening up the confirmation panel, start the timer to blink the text out
+		if (this.props.showConfirmation && this.props.txt_state === 0) {
+			clearInterval(txtTimer);
+			txtTimer = setInterval(() => {
+				this.props.updateState(SCOPE, { txt_state: this.props.txt_state + 1 });
+			}, 700);
+		}
+		if (this.props.txt_state >= 5) {
+			clearInterval(txtTimer);
+		}
+
+		// render the delete all components/delete wallet buttons
 		return (
-			<PageContainer>
-				<div className="bx--row">
-					<div className="bx--col-lg-13">
-						<PageHeader
-							history={this.props.history}
-							headerName="settings"
-							staticHeader
-						/>
-						<div>
-							{this.renderTransactionData(translate)}
-							{this.renderLogging(translate)}
-							{this.renderInactivityTimeouts(translate)}
-							<div>
-								<Button id="save_settings"
-									className="ibp-save-changes"
-									onClick={this.saveSettings}
-									disabled={!this.props.isAdmin || this.props.saving}
-								>
-									{translate('save_changes')}
-								</Button>
-								{this.props.saving && (<div>
-									{translate('restarting')}
-									<div id="ibp-progress-bar-wrap">
-										<div id="ibp-progress-bar"
-											style={{
-												width: progress_width + '%'
-											}}
-										/>
-									</div>
-								</div>)}
+			<div className="ibp-settings-bulk-data-container deleteZone">
+				<div className="settings-section delete-section">
+					<h3 className="settings-label">
+						<BlockchainTooltip direction="right"
+							triggerText={translate('delete_header')}
+						>
+							{translate('delete_header_tooltip')}
+						</BlockchainTooltip>
+					</h3>
+					<div className="settings-button-container">
+						{ActionsHelper.canDeleteComponent(this.props.userInfo) && (
+							<Button
+								id="data_delete_button1"
+								disabled={this.props.saving}
+								kind="danger"
+								onClick={async () => {
+									this.props.updateState(SCOPE, { showConfirmation: true, confirmationType: 'all' });
+								}}
+							>
+								{translate('delete_everything')}
+							</Button>
+						)}
+						<Button
+							id="data_delete_button3"
+							disabled={this.props.saving}
+							kind="danger"
+							onClick={async () => {
+								this.props.updateState(SCOPE, { showConfirmation: true, confirmationType: 'wallet' });
+							}}
+						>
+							{translate('delete_wallet')}
+						</Button>
+					</div>
+
+					{/*Confirmation panel here*/}
+					{this.props.showConfirmation && (
+						<SidePanel
+							id="ibp--template-full-page-side-panel"
+							closed={() => {
+								clearInterval(txtTimer);
+								this.props.updateState(SCOPE, { showConfirmation: false, txt_state: 0 });
+							}}
+							ref={sidePanel => (this.sidePanel = sidePanel)}
+							buttons={[
+								{
+									id: 'confirmation_id',
+									text: translate('yes_confirmation'),
+									type: 'submit',
+									disabled: (this.props.txt_state < 4) || this.props.saving,
+									onClick: async () => {
+										this.props.updateState(SCOPE, { saving: true });
+
+										if (this.props.confirmationType === 'all') {
+											await NodeRestApi.deleteAllComponents();
+										} else {
+											await IdentityApi.clear();
+										}
+
+										setTimeout(() => {
+											clearInterval(txtTimer);
+											this.props.updateState(SCOPE, { saving: false, showConfirmation: false, txt_state: 0 });
+										}, 700);
+									}
+								}
+							]}
+							fullPageCenter
+							submitting={this.props.saving}
+							hideClose={false}
+						>
+							<div className="ibp-full-page-center-panel-container">
+								<h2>
+									{translate(this.props.confirmationType === 'all' ? 'confirmation_header_all' : 'confirmation_header_wallet')}
+								</h2>
+
+								{/* *Blink* text here*/}
+								<h3 className='confirmationDesc'>
+									{this.props.txt_state < 1 && (
+										<span>...</span>
+									)}
+									{this.props.txt_state >= 1 && (
+										<span>{translate('confirmation_desc1')}&nbsp;</span>
+									)}
+									{this.props.txt_state >= 2 && (
+										<span>{translate('confirmation_desc2')}&nbsp;</span>
+									)}
+									{this.props.txt_state >= 3 && (
+										<span>{translate('confirmation_desc3')}</span>
+									)}
+									{this.props.txt_state >= 4 && (
+										<span>{translate('confirmation_desc4')}&nbsp;</span>
+									)}
+								</h3>
 							</div>
-							{this.renderDataManagement(translate)}
-						</div>
+						</SidePanel>
+					)}
+				</div>
+			</div >
+		);
+	}
+
+	// show section on version gathering (debug)
+	renderVersionDebug(translate) {
+		return (
+			<div className="ibp-settings-bulk-data-container">
+				<div className="settings-section">
+					<h3 className="settings-label">
+						<BlockchainTooltip direction="right"
+							triggerText={translate('version_debug_msg')}
+						>
+							{translate('version_debug_tooltip')}
+						</BlockchainTooltip>
+					</h3>
+					<div className="settings-button-container">
+						<Button
+							id="version_export_button"
+							disabled={this.props.saving}
+							onClick={async () => {
+								try {
+									const resp = await NodeRestApi.getVersionSummary();
+									this.downloadVersion(resp);
+								} catch (e) {
+									Log.error('error generating version summary', e);
+								}
+							}}
+						>
+							{translate('generate')}
+						</Button>
 					</div>
 				</div>
+			</div>
+		);
+	}
+
+	// download the version summary as a json file
+	downloadVersion(json) {
+		let filename = 'versions.' + Date.now() + '.json';
+		const createTarget = document.body;
+		let link = document.createElement('a');
+		if (link.download !== undefined) {
+			let blob = new Blob([JSON.stringify(json, null, '\t')], { type: 'application/json' });
+			let url = URL.createObjectURL(blob);
+			link.setAttribute('download', filename);
+			link.setAttribute('href', url);
+			link.style.visibility = 'hidden';
+			createTarget.appendChild(link);
+			link.click();
+			createTarget.removeChild(link);
+
+			try {
+				EventsRestApi.recordActivity({ status: 'success', log: 'generating version summary' });
+			} catch (e) {
+				Log.error('unable to record version summary/gathering', e);
+			}
+		}
+	}
+
+	render = () => {
+		const translate = this.props.t;
+		const progress_width = isNaN(this.props.width) ? 0 : this.props.width;
+
+		return (
+			<PageContainer>
+				{/* <div className="cds-row">
+					<div className="cds--col-lg-13"> */}
+				<PageHeader
+					history={this.props.history}
+					headerName="settings"
+					staticHeader
+				/>
+				<div>
+					{this.renderTransactionData(translate)}
+					{this.renderLogging(translate)}
+					{this.renderInactivityTimeouts(translate)}
+					<div>
+						<Button id="save_settings"
+							className="ibp-save-changes"
+							onClick={this.saveSettings}
+							disabled={!this.props.isAdmin || this.props.saving}
+						>
+							{translate('save_changes')}
+						</Button>
+						{this.props.saving && (<div>
+							{translate('restarting')}
+							<div id="ibp-progress-bar-wrap">
+								<div id="ibp-progress-bar"
+									style={{
+										width: progress_width + '%'
+									}}
+								/>
+							</div>
+						</div>)}
+					</div>
+					{this.renderVersionDebug(translate)}
+					{this.renderDataManagement(translate)}
+					{window && window.location && window.location.href && window.location.href.includes('debug') && this.renderDeleteSection(translate)}
+				</div>
+				{/* </div>
+				</div> */}
 			</PageContainer>
 		);
 	};
@@ -605,12 +789,15 @@ const dataProps = {
 	max_idle_time: PropTypes.number,
 	width: PropTypes.number,
 	changed: PropTypes.object,
+	showConfirmation: PropTypes.bool,
+	confirmationType: PropTypes.string,
+	txt_state: PropTypes.number,
 };
 
 Settings.propTypes = {
 	...dataProps,
 	showSuccess: PropTypes.func,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default connect(
@@ -618,6 +805,7 @@ export default connect(
 		let newProps = Helper.mapStateToProps(state[SCOPE], dataProps);
 		newProps['isAdmin'] = state['settings'].isAdmin;
 		newProps['userInfo'] = state['userInfo'] ? state['userInfo'] : null;
+		newProps['feature_flags'] = state['settings'] ? state['settings']['feature_flags'] : null;
 		return newProps;
 	},
 	{
@@ -627,4 +815,4 @@ export default connect(
 		updateState,
 		showSuccess,
 	}
-)(withLocalize(Settings));
+)(withTranslation()(withRouter(Settings)));

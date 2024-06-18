@@ -16,20 +16,41 @@
 import * as constants from './constants';
 
 const ActionsHelper = {
-	canCreateComponent(user) {
-		return ActionsHelper._actionCheck(user, constants.ACTION_COMPONENT_CREATE);
+
+	// return true if the console is in read only mode
+	inReadOnly(feature_flags) {
+		const in_read_only_mode = feature_flags ? feature_flags.read_only_enabled : false;
+		return in_read_only_mode;
 	},
 
-	canRemoveComponent(user) {
-		return ActionsHelper._actionCheck(user, constants.ACTION_COMPONENT_REMOVE);
+	// return true if the user has the right role to create a component (ca/peer/orderer)
+	canCreateComponent(user, feature_flags) {
+		const in_read_only_mode = feature_flags ? feature_flags.read_only_enabled : false;
+		const import_only_enabled = feature_flags ? feature_flags.import_only_enabled : false;
+		return ActionsHelper._actionCheck(user, constants.ACTION_COMPONENT_CREATE) && !in_read_only_mode && !import_only_enabled;
 	},
 
-	canDeleteComponent(user) {
-		return ActionsHelper._actionCheck(user, constants.ACTION_COMPONENT_DELETE);
+	// return true if the user has the right role to manage fabric nouns (ca identities/config blocks/channels)
+	canManageComponent(user, feature_flags) {
+		const in_read_only_mode = feature_flags ? feature_flags.read_only_enabled : false;
+		return ActionsHelper._actionCheck(user, constants.ACTION_COMPONENT_MANAGE) && !in_read_only_mode;
 	},
 
-	canImportComponent(user) {
-		return ActionsHelper._actionCheck(user, constants.ACTION_COMPONENT_IMPORT);
+	// return true if the user has the right to delete a *deployed* component (ca/peer/orderer)
+	canDeleteComponent(user, feature_flags) {
+		const in_read_only_mode = feature_flags ? feature_flags.read_only_enabled : false;
+		return ActionsHelper._actionCheck(user, constants.ACTION_COMPONENT_DELETE) && !in_read_only_mode;
+	},
+
+	// return true if the user has the right to remove an *imported* component (ca/peer/orderer)
+	canRemoveComponent(user, feature_flags) {
+		const in_read_only_mode = feature_flags ? feature_flags.read_only_enabled : false;
+		return ActionsHelper._actionCheck(user, constants.ACTION_COMPONENT_REMOVE) && !in_read_only_mode;
+	},
+
+	canImportComponent(user, feature_flags) {
+		const in_read_only_mode = feature_flags ? feature_flags.read_only_enabled : false;
+		return ActionsHelper._actionCheck(user, constants.ACTION_COMPONENT_IMPORT) && !in_read_only_mode;
 	},
 
 	canExportComponent(user) {
@@ -54,6 +75,10 @@ const ActionsHelper = {
 
 	canManageUsers(user) {
 		return ActionsHelper._actionCheck(user, constants.ACTION_USERS_MANAGE);
+	},
+
+	canManageApiKeys(user) {
+		return ActionsHelper._actionCheck(user, constants.ACTION_COMPONENT_IMPORT);
 	},
 
 	_actionCheck(user, action) {

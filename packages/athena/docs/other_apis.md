@@ -20,7 +20,7 @@ See public Optools configuration settings.
 	"CLUSTER_DATA": {
 		"type": "paid"
 	},
-	"DB_SYSTEM": "athena_system", // name of settings/tx database
+	"DB_SYSTEM": "athena-system", // name of settings/tx database
 	"DEPLOYER_TIMEOUT": 90000, // deployer http timeout in ms
 	"DEPLOYER_URL": "something",
 	"DOMAIN": null, // domain athena is using for cookies, should match url in browser
@@ -54,7 +54,6 @@ See public Optools configuration settings.
 	"CSP_HEADER_VALUES": [
 		"'none'"
 	],
-	"GRPCWPP_TIMEOUT": 300000, // grpc web proxy (http) timeout in ms
 	"HOST_URL": "http://localhost:3000", // home url
 	"HTTP_TIMEOUT": 120000,  // http timeout for athena to respond, ms
 	"LANDING_URL": "http://localhost:3000",
@@ -232,11 +231,11 @@ See private OpTools settings.
 ## 6. Edit a single field in the settings doc
 Edit any settings doc field.
 Use with caution.
-You may need to restart the server for some fields to take effect (logging).
+You may need to restart the server for some fields to take effect (like logging).
 
 **Check out api #7 (below) before using this one.** It has input validation.
 - **Method**: PUT
-- **Route**: `/api/v[123]/settings/key` (legacy route: `/api/v[123]/authscheme/key`)
+- **Route**: `/ak/api/v[123]/settings/key` (legacy route: `/api/v[123]/authscheme/key`)
 - **Auth**: need `blockchain.optools.settings` action
 - **Body**:
 ```js
@@ -492,7 +491,7 @@ The "tags" will not be built in the generate collection
 - `(skip-me)` - an api built for internal use, should not be doc'd for an end user
 - `(legacy)` - an api built for an older version of OpTools, should not be doc'd for an end user
 - `(unused)` - an api built for a future version of OpTools, should not be doc'd for an end user
-- `(software-only)` - an api built for Software and shouldn't be used on SaaS
+- `(software-only)` - an api built for Software/Support and should not be used on IBP (SaaS) [SaaS is now legacy, so this note is not very useful]
 
 ### API
 - **Method**: GET
@@ -695,7 +694,7 @@ _Once shutoff, the process will respond to all apis with a `503` status code and
 }
 ```
 
-- **PillowTalk™ Doc**: A pillow talk doc can be used to trigger the same functionality. Write a doc to the `DB_SYSTEM` db aka `xyz_athena_system` with this format:
+- **PillowTalk™ Doc**: A pillow talk doc can be used to trigger the same functionality. Write a doc to the `DB_SYSTEM` db with this format:
 ```js
 // doc to stop
 {

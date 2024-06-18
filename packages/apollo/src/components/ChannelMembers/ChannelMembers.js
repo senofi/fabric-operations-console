@@ -15,7 +15,7 @@
 */
 import PropTypes from 'prop-types';
 import React, { Component } from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import { showSuccess, updateState } from '../../redux/commonActions';
 import { PeerRestApi } from '../../rest/PeerRestApi';
@@ -76,7 +76,7 @@ class ChannelMembers extends Component {
 		return (
 			<>
 				<ItemTileLabels certificateWarning={member.certificateWarning}
-					nodeOU={member.node_ou}
+					nodeOU={member.node_ou ? true : false}
 				/>
 			</>
 		);
@@ -124,6 +124,7 @@ class ChannelMembers extends Component {
 						onClose={this.hideUpdateMSPModal}
 						onComplete={this.onUpdateMspCompleted}
 						isOrdererMSP={this.props.selectedChannelMspForEdit.isOrdererMSP}
+						orgNodes={this.props.orgNodes}
 					/>
 				)}
 				{this.props.isOrdererMSP && this.props.selectedOrdererMspForEdit && (
@@ -173,4 +174,4 @@ export default connect(
 		updateState,
 		showSuccess,
 	}
-)(withLocalize(ChannelMembers));
+)(withTranslation()(ChannelMembers));

@@ -15,18 +15,18 @@
 */
 import React from 'react';
 import PropTypes from 'prop-types';
-import { InlineNotification } from 'carbon-components-react';
-import { withLocalize } from 'react-localize-redux';
+import { ActionableNotification } from "@carbon/react";
+import { withTranslation } from 'react-i18next';
 
 const SidePanelWarning = props => {
-	const translate = props.translate;
+	const translate = props.t;
 	return (
 		<div className={(props.className ? props.className + ' ' : '') + 'ibp-side-panel-warning'}>
-			<InlineNotification
+			<ActionableNotification
 				kind={props.kind ? props.kind : 'warning'}
 				className={props.kind === 'warning' ? 'ibp-side-panel-warning-notification' : ''}
-				title={translate(props.title)}
-				subtitle={props.subtitle && typeof props.subtitle === 'string' ? translate(props.subtitle) : props.subtitle ? props.subtitle : null}
+				title={translate(props.title, props.data)}
+				subtitle={props.subtitle && typeof props.subtitle === 'string' ? translate(props.subtitle, props.data) : props.subtitle ? props.subtitle : null}
 				hideCloseButton={true}
 				caption=""
 			/>
@@ -43,7 +43,8 @@ SidePanelWarning.propTypes = {
 	kind: PropTypes.string,
 	title: PropTypes.string.isRequired,
 	subtitle: PropTypes.oneOfType([PropTypes.node, PropTypes.string]),
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
+	data: PropTypes.object,
 };
 
-export default withLocalize(SidePanelWarning);
+export default withTranslation()(SidePanelWarning);

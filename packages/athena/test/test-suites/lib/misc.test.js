@@ -772,14 +772,6 @@ describe('Misc', () => {
 								expect(censoredEmail).to.equal('*@us.ibm.com');
 								done();
 							}
-						},
-						{
-							itStatement: 'should return censored email - partial  test_id=rudyqk',
-							expectBlock: (done) => {
-								const censoredEmail = misc.censorEmail('uus.ibm.com');
-								expect(censoredEmail).to.equal('uus.ibm.***');
-								done();
-							}
 						}
 					]
 				}
@@ -982,7 +974,7 @@ describe('Misc', () => {
 				{
 					arrayOfInfoToTest: [
 						{
-							itStatement: 'should return value from object - test_id=dqmgpn',
+							itStatement: 'should return value from complex object - test_id=dqmgpn',
 							expectBlock: (done) => {
 								const doc = {
 									'views': {
@@ -1071,6 +1063,18 @@ describe('Misc', () => {
 									}
 								};
 								expect(misc.safe_dot_nav(doc, ['doc.something', 'doc.views.arr.1.two'])).to.equal('here2');
+								done();
+							}
+						},
+						{
+							itStatement: 'should return value from object with array notation - test_id=ahppav',
+							expectBlock: (done) => {
+								const doc = {
+									'views': {
+										'arr': ['one', { 'two': 'here2' }]
+									}
+								};
+								expect(misc.safe_dot_nav(doc, ['doc.views.arr[1].two'])).to.equal('here2');
 								done();
 							}
 						},
@@ -1927,6 +1931,11 @@ describe('Misc', () => {
 								expect(misc.version_matches_pattern('v1.4.x-1', 'v1.4.1-2')).to.equal(true);
 								expect(misc.version_matches_pattern('v1.4.x-1', 'v1.4.20-2')).to.equal(true);
 								expect(misc.version_matches_pattern('v1.4.x-1', 'v1.4-2')).to.equal(true);
+								expect(misc.version_matches_pattern('2.2.x', '2.2.8-3')).to.equal(true);
+								expect(misc.version_matches_pattern('2.2.8-x', '2.2.8-3')).to.equal(true);
+								expect(misc.version_matches_pattern('2.2.8-3', '2.2.8-3')).to.equal(true);
+								expect(misc.version_matches_pattern('2.0.x', 2)).to.equal(true);
+								expect(misc.version_matches_pattern('2.2.x', 2.2)).to.equal(true);
 								done();
 							}
 						},
@@ -1939,6 +1948,7 @@ describe('Misc', () => {
 								expect(misc.version_matches_pattern('v1.4.x', 'v1.5.20')).to.equal(false);
 								expect(misc.version_matches_pattern('v1.4.x', 'v1.5')).to.equal(false);
 								expect(misc.version_matches_pattern('1.x.0', '2.0.0')).to.equal(false);
+								expect(misc.version_matches_pattern('2.2.x', 2.0)).to.equal(false);
 								done();
 							}
 						},
@@ -2045,7 +2055,7 @@ describe('Misc', () => {
 							itStatement: 'should edit malicious str - test_id=ymmbus',
 							expectBlock: (done) => {
 								const str = 'hi<script>alert(\'hey\');</script>asdf012345';
-								expect(misc.safe_str(str)).to.equal('hiscriptalert(hey)scriptasdf0123');
+								expect(misc.safe_str(str)).to.equal('hiscriptalert(\'hey\')scriptasdf01');
 								done();
 							}
 						},
@@ -2053,6 +2063,13 @@ describe('Misc', () => {
 							itStatement: 'should return fallback string - test_id=avswqb',
 							expectBlock: (done) => {
 								expect(misc.safe_str({})).to.equal('[-string redacted-]');
+								done();
+							}
+						},
+						{
+							itStatement: 'should return a safe string - test_id=fucwch',
+							expectBlock: (done) => {
+								expect(misc.safe_str('this . sentence. had. dots. and "quotes" \'!\'', true)).to.equal('this . sentence. had. dots. and "quotes" \'!\'');
 								done();
 							}
 						}

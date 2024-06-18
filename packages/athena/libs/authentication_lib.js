@@ -53,22 +53,32 @@ module.exports = function (logger, ev, t) {
 			} else {
 
 				// --- Passport --- //
-				const strategy_name = ev.AUTH_SCHEME === 'iam' ? ev.IAM.STRATEGY_NAME : ev.IBM_ID.STRATEGY_NAME;
+				const strategy_map = {
+					iam: ev.IAM.STRATEGY_NAME,
+					oidc: ev.OIDC.STRATEGY_NAME,
+					ldap: ev.LDAP.STRATEGY_NAME,
+					oauth: ev.OAUTH.STRATEGY_NAME,
+				};
+				const strategy_name = strategy_map[ev.AUTH_SCHEME];
 				logger.debug('[passport] using auth scheme:', strategy_name);
 				passport.authenticate(strategy_name, function (e, profile) {
 					if (profile) {
+						logger.debug('[passport] received profile');
 						req._email = profile.email || profile.name || null;
 						log_notification();
 					}
 
 					if (e != null) {
 						logger.error('[passport] error:', typeof e, e);
+
+						// don't reply with the iam error details to appease the pen-testers
 						if (url_parts && url_parts.query && url_parts.query.code) {
-							res.status(400).json({ oauth_error: 'could not exchange oauth code for a token', details: e });	// avoid redirect loop, show error
+							res.status(400).json({ oauth_error: 'could not exchange oauth code for a token' });	// avoid redirect loop, show error
 						} else {
-							res.status(500).json({ oauth_error: 'oauth flow encountered an error', details: e });	// avoid redirect loop, show error
+							res.status(500).json({ oauth_error: 'oauth flow encountered an error' });	// avoid redirect loop, show error
 						}
 					} else {
+						logger.debug('[passport] no error');
 						req.session.passport_profile = profile;			// store the passport data (including iam actions)
 						req.session.ip = t.misc.format_ip(req.ip, false);
 						req.session.ip_hash = t.misc.format_ip(req.ip, true);
@@ -83,6 +93,15 @@ module.exports = function (logger, ev, t) {
 						// --- Redirect to Home --- //
 						req.session.save(() => {						// redirects seem tricky w/ auto session saving, lets wait for the save before returning
 							logger.debug('[passport] session saved. redirecting to:', ev.LANDING_URL);
+
+							// we need to flush the caches of other instances on a successful login,
+							// just in case another athena instance already has an entry for the session w/o the user details in it
+							const msg = {
+								message_type: 'flush_session_cache',
+								message: 'user has logged in, clear session cache',
+							};
+							t.pillow.broadcast(msg);
+
 							res.setHeader('Access-Control-Expose-Headers', 'Location');
 							res.redirect(ev.LANDING_URL);
 						});
@@ -93,7 +112,7 @@ module.exports = function (logger, ev, t) {
 
 		// create notification doc
 		function log_notification() {
-			const notice = { message: 'user logging into the IBP console - sso' };
+			const notice = { message: 'user logging in - sso' };
 			t.notifications.procrastinate(req, notice);
 		}
 	};
@@ -118,7 +137,7 @@ module.exports = function (logger, ev, t) {
 	// ------------------------------------------
 	exports.local_login = function (req, res, next, passport) {
 		if (ev.AUTH_SCHEME === 'couchdb') {
-			const notice = { message: 'user logging into the IBP console - local' };
+			const notice = { message: 'user logging in - local' };
 
 			logger.debug('[passport] logging in use via couch db auth scheme');
 			const lc_email = req.body.email ? req.body.email.toLowerCase() : null;
@@ -174,6 +193,15 @@ module.exports = function (logger, ev, t) {
 					} else {
 						req.session.save(() => {			// timing seems tricky w/ auto session saving, lets manually wait for the save before returning
 							logger.info('[auth] local login success', t.misc.censorEmail(lc_email));
+
+							// we need to flush the caches of other instances on a successful login,
+							// just in case another athena instance already has an entry for the session w/o the user details in it
+							const msg = {
+								message_type: 'flush_session_cache',
+								message: 'user has logged in, clear session cache',
+							};
+							t.pillow.broadcast(msg);
+
 							const ret = {
 								message: 'ok',
 								name: req.session.couchdb_profile.name,
@@ -230,6 +258,13 @@ module.exports = function (logger, ev, t) {
 
 					// --- Redirect to Home --- //
 					req.session.save(() => {						// redirects seem tricky w/ auto session saving, lets wait for the save before returning
+
+						const msg = {
+							message_type: 'flush_session_cache',
+							message: 'user has logged in, clear session cache',
+						};
+						t.pillow.broadcast(msg);
+
 						const ret = {
 							message: 'ok',
 							name: profile.givenName,
@@ -244,7 +279,7 @@ module.exports = function (logger, ev, t) {
 
 		// create notification doc
 		function log_notification() {
-			const notice = { message: 'user logging into the IBP console - ldap' };
+			const notice = { message: 'user logging in - ldap' };
 			t.notifications.procrastinate(req, notice);
 		}
 	};

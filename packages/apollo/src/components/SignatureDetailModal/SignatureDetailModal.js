@@ -13,18 +13,19 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
 */
-import { Checkbox, CodeSnippet, TextInput } from 'carbon-components-react';
+import { Checkbox, CodeSnippet, TextInput } from "@carbon/react";
 import _ from 'lodash';
 import parse from 'parse-duration';
 import PropTypes from 'prop-types';
 import React from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation, Trans } from 'react-i18next';
 import { connect } from 'react-redux';
 import { updateState } from '../../redux/commonActions';
 import { CertificateAuthorityRestApi } from '../../rest/CertificateAuthorityRestApi';
 import ChannelApi from '../../rest/ChannelApi';
 import IdentityApi from '../../rest/IdentityApi';
 import SignatureRestApi from '../../rest/SignatureRestApi';
+import { EventsRestApi } from '../../rest/EventsRestApi';
 import StitchApi from '../../rest/StitchApi';
 import Clipboard from '../../utils/clipboard';
 import Helper from '../../utils/helper';
@@ -33,6 +34,7 @@ import Logger from '../Log/Logger';
 import SidePanelWarning from '../SidePanelWarning/SidePanelWarning';
 import Wizard from '../Wizard/Wizard';
 import WizardStep from '../WizardStep/WizardStep';
+import RenderParamHTML from '../RenderHTML/RenderParamHTML';
 const semver = require('semver');
 
 const SCOPE = 'signatureDetailModal';
@@ -90,7 +92,7 @@ class SignatureDetailModal extends React.Component {
 		}
 		for (let orgIdx in this.props.request.orgs2sign) {
 			let entry = this.props.request.orgs2sign[orgIdx];
-			if (entry.admin && entry.optools_url.indexOf(optools_url) === 0 && !entry.signature) {
+			if (entry.admin && Helper.urlsAreEqual(entry.optools_url, optools_url) && !entry.signature) {
 				const identities = await this.getIdentitiesForEntry(entry);
 				entry.identities = identities;
 				orgs2sign.push(entry);
@@ -103,7 +105,7 @@ class SignatureDetailModal extends React.Component {
 		if (this.props.request.orderers2sign) {
 			for (let orgIdx in this.props.request.orderers2sign) {
 				let entry = this.props.request.orderers2sign[orgIdx];
-				if (entry.optools_url.indexOf(optools_url) === 0 && !entry.signature) {
+				if (Helper.urlsAreEqual(entry.optools_url, optools_url) && !entry.signature) {
 					const identities = await this.getIdentitiesForEntry(entry);
 					entry.identities = identities;
 					orderers2sign.push(entry);
@@ -218,7 +220,18 @@ class SignatureDetailModal extends React.Component {
 				name: org.msp_id,
 				type: 'dropdown',
 				options: org.identities || this.props.identities,
-				label: 'signature_for_msp',
+				label: RenderParamHTML(translate, 'signature_for_msp', {
+					msp: (
+						<CodeSnippet
+							type="inline"
+							ariaLabel={translate('copy_text', { copyText: this.getMSPDisplayName(org.msp_id, org.root_certs) })}
+							light={false}
+							onClick={() => Clipboard.copyToClipboard(this.getMSPDisplayName(org.msp_id, org.root_certs))}
+						>
+							{this.getMSPDisplayName(org.msp_id, org.root_certs)}
+						</CodeSnippet>
+					)
+				}),
 				labelOptions: {
 					msp: (
 						<CodeSnippet
@@ -240,7 +253,18 @@ class SignatureDetailModal extends React.Component {
 				name: orderer.msp_id,
 				type: 'dropdown',
 				options: orderer.identities || this.props.identities,
-				label: 'signature_for_msp',
+				label: RenderParamHTML(translate, 'signature_for_msp',{
+					msp: (
+						<CodeSnippet
+							type="inline"
+							ariaLabel={translate('copy_text', { copyText: this.getMSPDisplayName(orderer.msp_id, orderer.root_certs) })}
+							light={false}
+							onClick={() => Clipboard.copyToClipboard(this.getMSPDisplayName(orderer.msp_id, orderer.root_certs))}
+						>
+							{this.getMSPDisplayName(orderer.msp_id, orderer.root_certs)}
+						</CodeSnippet>
+					),
+				}),
 				labelOptions: {
 					msp: (
 						<CodeSnippet
@@ -347,7 +371,7 @@ class SignatureDetailModal extends React.Component {
 							default: 'select_identity',
 						},
 					]}
-					onChange={async(data, valid) => {
+					onChange={async (data, valid) => {
 						if (data.submit_msp) {
 							const submit_identity_options = await IdentityApi.getIdentitiesForMsp(data.submit_msp);
 							this.props.updateState(SCOPE, {
@@ -396,6 +420,7 @@ class SignatureDetailModal extends React.Component {
 						}
 					});
 				}
+
 				SignatureRestApi.signRequest(this.props.request, data)
 					.then(() => {
 						if (this.props.onComplete) {
@@ -417,8 +442,26 @@ class SignatureDetailModal extends React.Component {
 						});
 					});
 			} else {
+				const member_diff = this.getMemberDifferences();
+				const acl_diff = this.getACLDifferences();
+				const block_params_diff = this.getBlockParameterDifferences();
+				const raft_params_diff = this.getRaftParameterDifferences();
+				const policy_diff = this.getPolicyDifferences();
+				const capability_diff = this.getCapabilityDifferences();
+				const consenter_diff = this.getConsenterDifferences();
+				const msp_diff = this.getMSPDifferences();
+				const orderer_msp_diff = this.getOrdererMSPDifferences();
 				SignatureRestApi.submitRequest(this.props.request, this.props.submit_msp, this.props.submit_identity)
 					.then(() => {
+						this.buildMessage(member_diff, 'Member');
+						this.buildMessage(acl_diff, 'ACL');
+						this.buildMessage(block_params_diff, 'Block Params');
+						this.buildMessage(raft_params_diff, 'Raft Params');
+						this.buildMessage(policy_diff, 'Policy');
+						this.buildMessage(capability_diff, 'Capability');
+						this.buildMessage(consenter_diff, 'Consenter');
+						this.buildMessage(msp_diff, 'MSP');
+						this.buildMessage(orderer_msp_diff, 'Orderer MSP');
 						if (this.props.onComplete) {
 							this.props.onComplete(true);
 						}
@@ -426,6 +469,15 @@ class SignatureDetailModal extends React.Component {
 					})
 					.catch(err => {
 						Log.error(err);
+						this.buildMessage(member_diff, 'Member', 'error');
+						this.buildMessage(acl_diff, 'ACL', 'error');
+						this.buildMessage(block_params_diff, 'Block Params', 'error');
+						this.buildMessage(raft_params_diff, 'Raft Params', 'error');
+						this.buildMessage(policy_diff, 'Policy', 'error');
+						this.buildMessage(capability_diff, 'Capability', 'error');
+						this.buildMessage(consenter_diff, 'Consenter', 'error');
+						this.buildMessage(msp_diff, 'MSP', 'error');
+						this.buildMessage(orderer_msp_diff, 'Orderer MSP', 'error');
 						let details = err;
 						let title = 'error_signature_failed';
 						if (_.has(err, 'stitch_msg') && _.includes(err.stitch_msg, 'no Raft leader')) {
@@ -452,8 +504,42 @@ class SignatureDetailModal extends React.Component {
 						});
 					});
 			}
+		}).catch(e => {
+			Log.error('unable to submit - caught error during signature submission');
+			Log.error(e);
 		});
 	};
+
+	buildMessage(diff, type, status = 'success') {
+		const opt = {
+			log: type,
+			status,
+			code: status === 'success' ? 200 : 500
+		};
+		if (diff.added) {
+			if (status === 'success') {
+				opt.log = `${opt.log} added to channel`;
+			} else {
+				opt.log = `${opt.log} failed to add in channel`;
+			}
+		} else if (diff.updated) {
+			if (status === 'success') {
+				opt.log = `${opt.log} updated to channel`;
+			} else {
+				opt.log = `${opt.log} failed to update in channel`;
+			}
+		} else if (diff.removed) {
+			if (status === 'success') {
+				opt.log = `${opt.log} removed from channel`;
+			} else {
+				opt.log = `${opt.log} failed to remove from channel`;
+			}
+		} else {
+			return;
+		}
+		opt.log = `${opt.log} ${this.props.request.channel}`;
+		EventsRestApi.recordActivity(opt);
+	}
 
 	getChannelRoles(data) {
 		const roles = {};
@@ -483,7 +569,7 @@ class SignatureDetailModal extends React.Component {
 
 	getMemberDifferences() {
 		const diff = {};
-		if (this.props.request.json_diff.members) {
+		if (this.props?.request?.json_diff?.members) {
 			const current_roles = this.getChannelRoles(this.props.request.json_diff.members.current);
 			const updated_roles = this.getChannelRoles(this.props.request.json_diff.members.updated);
 			for (let msp_id in updated_roles) {
@@ -616,7 +702,7 @@ class SignatureDetailModal extends React.Component {
 
 	getACLDifferences() {
 		const diff = {};
-		if (this.props.request.json_diff.acl) {
+		if (this.props?.request?.json_diff?.acl) {
 			let current = this.props.request.json_diff.acl.current;
 			if (!current) {
 				current = {};
@@ -654,7 +740,7 @@ class SignatureDetailModal extends React.Component {
 
 	getBlockParameterDifferences() {
 		const diff = {};
-		if (this.props.request.json_diff.block_params) {
+		if (this.props?.request?.json_diff?.block_params) {
 			let current = this.props.request.json_diff.block_params.current;
 			if (!current) {
 				current = {};
@@ -693,7 +779,7 @@ class SignatureDetailModal extends React.Component {
 
 	getRaftParameterDifferences() {
 		const diff = {};
-		if (this.props.request.json_diff.raft_params) {
+		if (this.props?.request?.json_diff?.raft_params) {
 			let current = this.props.request.json_diff.raft_params.current;
 			if (!current) {
 				current = {};
@@ -738,7 +824,7 @@ class SignatureDetailModal extends React.Component {
 
 	getPolicyDifferences() {
 		const diff = {};
-		if (this.props.request.json_diff.policy) {
+		if (this.props?.request?.json_diff?.policy) {
 			let current = this.props.request.json_diff.policy.current;
 			if (!current) {
 				current = {};
@@ -758,7 +844,7 @@ class SignatureDetailModal extends React.Component {
 
 	getCapabilityDifferences() {
 		const diff = {};
-		if (this.props.request.json_diff.capabilities) {
+		if (this.props?.request?.json_diff?.capabilities) {
 			let currentCapabilities = this.props.request.json_diff.capabilities.current;
 			let current = {
 				channel: Helper.getCapabilityHighestVersion(currentCapabilities.channel),
@@ -825,7 +911,7 @@ class SignatureDetailModal extends React.Component {
 
 	getConsenterDifferences() {
 		const diff = {};
-		if (this.props.request.json_diff.consenters) {
+		if (this.props?.request?.json_diff?.consenters) {
 			let current = {};
 			this.props.request.json_diff.consenters.current.forEach(x => {
 				current[x.host + ':' + x.port] = x;
@@ -869,7 +955,7 @@ class SignatureDetailModal extends React.Component {
 
 	getOrdererMSPDifferences() {
 		const diff = {};
-		if (this.props.request.json_diff.orderer_msps) {
+		if (this.props?.request?.json_diff?.orderer_msps) {
 			const current = this.props.request.json_diff.orderer_msps.current;
 			const updated = this.props.request.json_diff.orderer_msps.updated;
 			for (let msp_id in updated) {
@@ -893,8 +979,8 @@ class SignatureDetailModal extends React.Component {
 	}
 
 	getMSPDifferences() {
-		const diff = [];
-		if (this.props.request.json_diff.msp) {
+		const diff = {};
+		if (this.props?.request?.json_diff?.msp) {
 			diff.updated = [];
 			let current = this.props.request.json_diff.msp.current;
 			if (!current) {
@@ -1272,7 +1358,7 @@ class SignatureDetailModal extends React.Component {
 			title = 'new_channel_pending_request';
 			desc = 'new_channel_pending_request_desc';
 		}
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		let disableSubmit = false;
 		if (!approved || !ordererApproved) {
 			if (!this.props.signatureData && !this.props.ordererData) {
@@ -1298,11 +1384,11 @@ class SignatureDetailModal extends React.Component {
 				cancelButtonLabel={translate('close')}
 			>
 				<p>
-					{translate(desc, {
+					<Trans>{translate(desc, {
 						org: this.props.request.originator_msp,
 						channel: this.props.request.channel,
 						number_of_signatures: this.props.request.current_policy.number_of_signatures,
-					})}
+					})}</Trans>
 				</p>
 				{this.renderChannelUpdate(translate)}
 				{!!onSubmit && (
@@ -1342,7 +1428,7 @@ SignatureDetailModal.propTypes = {
 	onClose: PropTypes.func,
 	onComplete: PropTypes.func,
 	updateState: PropTypes.func,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default connect(
@@ -1359,4 +1445,4 @@ export default connect(
 	{
 		forwardRef: true,
 	}
-)(withLocalize(SignatureDetailModal));
+)(withTranslation()(SignatureDetailModal));

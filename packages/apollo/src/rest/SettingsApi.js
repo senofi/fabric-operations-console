@@ -56,7 +56,11 @@ class SettingsApi {
 	}
 
 	static async getSettings() {
-		return RestApi.get('/api/v2/settings?preventCache=' + new Date().getTime());
+		return RestApi.get('/api/v3/settings?preventCache=' + new Date().getTime());
+	}
+
+	static async getPrivateSettings() {
+		return RestApi.get('/api/v3/private-settings?preventCache=' + new Date().getTime());
 	}
 
 	static async getFeatureFlags() {
@@ -76,7 +80,7 @@ class SettingsApi {
 			return SettingsApi.feature_flags.promise;
 		}
 		const promise = new Promise(resolve => {
-			const url = '/api/v2/settings?preventCache=' + new Date().getTime();
+			const url = '/api/v3/settings?preventCache=' + new Date().getTime();
 			const headers = {
 				'cache-control': 'no-cache',
 			};
@@ -95,12 +99,14 @@ class SettingsApi {
 		return promise;
 	}
 
+	// update w/e settings are in data, has input validation
 	static async updateSettings(data) {
-		return RestApi.put('/api/v2/settings', data);
+		return RestApi.put('/api/v3/settings', data);
 	}
 
-	static async updateSetting(key, value) {
-		return RestApi.put('/api/v2/authscheme/key', {
+	// will update one setting, no input validation, don't use unless you don't have a way
+	static async updateOneSetting(key, value) {
+		return RestApi.put('/api/v3/authscheme/key', {
 			[key]: value,
 		});
 	}

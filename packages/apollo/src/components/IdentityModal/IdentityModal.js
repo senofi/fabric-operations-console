@@ -13,10 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
 */
-import { CodeSnippet } from 'carbon-components-react';
+import { CodeSnippet } from "@carbon/react";
 import PropTypes from 'prop-types';
 import React from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import { updateState } from '../../redux/commonActions';
 import IdentityApi from '../../rest/IdentityApi';
@@ -25,6 +25,7 @@ import Helper from '../../utils/helper';
 import Form from '../Form/Form';
 import Logger from '../Log/Logger';
 import SidePanel from '../SidePanel/SidePanel';
+import RenderParamHTML from '../RenderHTML/RenderParamHTML';
 
 const SCOPE = 'identityModal';
 const Log = new Logger(SCOPE);
@@ -249,13 +250,13 @@ class IdentityModal extends React.Component {
 				<p className="ibp-actions-title">{translate('actions')}</p>
 				<div>
 					<button id="export"
-						className="ibp-identity-action bx--btn bx--btn--tertiary bx--btn--sm"
+						className="ibp-identity-action cds--btn cds--btn--tertiary cds--btn--sm"
 						onClick={this.exportIdentity}
 					>
 						{translate('export_certs')}
 					</button>
 					<button id="remove"
-						className="ibp-identity-action bx--btn bx--btn--sm bx--btn--danger"
+						className="ibp-identity-action cds--btn cds--btn--sm cds--btn--danger"
 						onClick={this.showRemoveIdentity}
 					>
 						{translate('remove_identity')}
@@ -272,7 +273,7 @@ class IdentityModal extends React.Component {
 					<h1 className="ibm-light">{translate('remove_identity')}</h1>
 				</div>
 				<p className="ibp-remove-identity-desc">
-					{translate('remove_identity_desc', {
+					{RenderParamHTML(translate, 'remove_identity_desc', {
 						name: (
 							<CodeSnippet
 								type="inline"
@@ -307,7 +308,7 @@ class IdentityModal extends React.Component {
 	}
 
 	render() {
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		return (
 			<SidePanel
 				id="identity_Modal"
@@ -343,7 +344,7 @@ IdentityModal.propTypes = {
 	onComplete: PropTypes.func,
 	onClose: PropTypes.func,
 	updateState: PropTypes.func,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default connect(
@@ -353,4 +354,4 @@ export default connect(
 	{
 		updateState,
 	}
-)(withLocalize(IdentityModal));
+)(withTranslation()(IdentityModal));

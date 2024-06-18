@@ -572,7 +572,7 @@ module.exports = function (logger, ev, t) {
 
 				// build a notification doc
 				const notice = {
-					message: 'adding a new ' + comp_doc.type + ': ' + (comp_doc.display_name || comp_doc._id),
+					message: 'adding new ' + comp_doc.type + ' "' + (comp_doc._id || comp_doc.display_name) + '"',
 					component_id: comp_doc._id,
 					component_type: comp_doc.type || null,
 					component_display_name: comp_doc.display_name || null,
@@ -659,9 +659,11 @@ module.exports = function (logger, ev, t) {
 				const key = prevent_edit_keys[i];
 				delete req.body[key];
 			}
+			let desc = [];
 			for (let key in req.body) {
 				if (t.misc.is_different(resp_getDoc[key], req.body[key])) { // log the differences for debugging
 					edits.push(t.misc.safe_str(key));
+					desc.push('"' + t.misc.safe_str(key) + '"');
 				}
 				resp_getDoc[key] = req.body[key];							// make the changes the client wants done
 			}
@@ -688,7 +690,7 @@ module.exports = function (logger, ev, t) {
 
 			// build a notification doc
 			const notice = {
-				message: 'editing component: ' + (fmt_doc.display_name || fmt_doc._id),
+				message: 'editing component "' + (fmt_doc._id || fmt_doc.display_name) + '" - ' + desc.join(', '),
 				component_id: fmt_doc._id,
 				component_type: fmt_doc.type,
 				component_display_name: fmt_doc.display_name,
@@ -709,16 +711,39 @@ module.exports = function (logger, ev, t) {
 					ret.message = 'ok';
 
 					// edit other orderer node docs of the same cluster
-					if (fmt_doc.cluster_id && is_multi_edit(fmt_doc)) {	// need to edit multiple docs
+					if (fmt_doc.cluster_id && is_multi_edit(req.body)) {	// need to edit multiple docs
 						multi_raft_node_edit(fmt_doc, () => {			// I don't care if it errors
 							return cb(null, t.misc.sortKeys(ret));
 						});
 					} else {
-						return cb(null, t.misc.sortKeys(ret));
+
+						// after editing the comp's data, we may need to update our whitelist to reflect any edited urls
+						if (are_urls_edited(req.body)) {
+							exports.rebuildWhiteList(req, () => {
+								return cb(null, t.misc.sortKeys(ret));
+							});
+						} else {
+							return cb(null, t.misc.sortKeys(ret));
+						}
 					}
 				}
 			});
 		});
+
+		// do we need to rebuild the whitelist?
+		function are_urls_edited(input) {
+			const possible_urls = [
+				'api_url', 'ca_url', 'grpcwp_url', 'operations_url', 'osnadmin_url',
+				'api_url_saas', 'operations_url_saas', 'osnadmin_url_saas'
+			];
+			for (let i in possible_urls) {
+				const key = possible_urls[i];
+				if (input && input[key]) {
+					return true;
+				}
+			}
+			return false;
+		}
 
 		// do we need to edit all raft node docs?
 		function is_multi_edit(input) {
@@ -827,7 +852,7 @@ module.exports = function (logger, ev, t) {
 				const type = exports.get_type_from_doc(doc) || 'component';		// try to get the component type from the doc
 				const name = doc.display_name || doc.short_name || doc._id;
 				const notice = {
-					message: 'deleting ' + type + ': ' + name,
+					message: 'removing ' + type + ' "' + (doc._id || name) + '"',
 					component_id: doc._id,
 					component_type: doc.type,
 					component_display_name: doc.display_name,
@@ -999,21 +1024,22 @@ module.exports = function (logger, ev, t) {
 		if (!doc) {
 			return doc;
 		} else {
-			doc.url2use = (doc.type === ev.STR.CA) ? doc.api_url : doc.grpcwp_url;	// copy the default
+			let doc_with_fmt_urls = t.comp_fmt.fmt_component_resp({}, JSON.parse(JSON.stringify(doc)));			// format it to pickup the correct api_url value
+			doc.url2use = (doc.type === ev.STR.CA) ? doc_with_fmt_urls.api_url : doc_with_fmt_urls.grpcwp_url;	// copy the default
 
 			// override the component's api url with a proxy route url to avoid self-signed issues in the browser
 			if (should_proxy_url(doc.url2use)) {
 				if (doc.type === ev.STR.ORDERER) {									// orderers use WS url
-					doc.url2use = ev.PROXY_TLS_WS_URL + '/grpcwp/' + encodeURIComponent(doc.grpcwp_url);
+					doc.url2use = ev.PROXY_TLS_WS_URL + '/grpcwp/' + encodeURIComponent(doc_with_fmt_urls.grpcwp_url);
 				} else if (doc.type === ev.STR.PEER) {								// peers use the http url
-					doc.url2use = ev.PROXY_TLS_HTTP_URL + '/grpcwp/' + encodeURIComponent(doc.grpcwp_url);
+					doc.url2use = ev.PROXY_TLS_HTTP_URL + '/grpcwp/' + encodeURIComponent(doc_with_fmt_urls.grpcwp_url);
 				}
 			}
 			if (doc.type === ev.STR.CA) {											// cas always proxy, use the http url w/its own route
 				if (doc.disable_ca_proxy === true) {								// unless component has override flag
-					doc.url2use = doc.api_url;
+					doc.url2use = doc_with_fmt_urls.api_url;
 				} else {
-					doc.url2use = ev.PROXY_TLS_HTTP_URL + '/caproxy/' + encodeURIComponent(doc.api_url);
+					doc.url2use = ev.PROXY_TLS_HTTP_URL + '/caproxy/' + encodeURIComponent(doc_with_fmt_urls.api_url);
 				}
 			}
 
@@ -1039,7 +1065,7 @@ module.exports = function (logger, ev, t) {
 	}
 
 	//-------------------------------------------------------------
-	// Rebuild ips/domains on whitelist aka safelist
+	// Rebuild ips/domains on whitelist aka safelist (legacy name was HOST_WHITE_LIST)
 	//-------------------------------------------------------------
 	exports.rebuildWhiteList = (req, cb) => {
 		req._skip_cache = true;
@@ -1050,7 +1076,7 @@ module.exports = function (logger, ev, t) {
 			(join) => {
 				exports.get_all_components(req, (err, resp) => {
 					if (err) {
-						logger.warn('[comp lib] could not get component docs to rebuild hostname safelist', err);
+						logger.warn('[comp lib] could not get component docs to rebuild url safelist', err);
 					}
 					join(err, resp);
 				});
@@ -1060,7 +1086,7 @@ module.exports = function (logger, ev, t) {
 			(join) => {
 				t.signature_collection_lib.getSignatureCollectionsDocs(req, (err, resp) => {
 					if (err) {
-						logger.warn('[comp lib] could not get signature collections to rebuild hostname safelist', err);
+						logger.warn('[comp lib] could not get signature collections to rebuild url safelist', err);
 					}
 					join(null, resp);						// don't care if we can't get these
 				});
@@ -1068,7 +1094,7 @@ module.exports = function (logger, ev, t) {
 
 		], (a_err, results) => {
 			if (a_err) {
-				logger.error('[comp lib] cannot update hostname safelist, could not get components'); // error details already logged
+				logger.error('[comp lib] cannot update url safelist, could not get components'); // error details already logged
 				return cb(a_err);
 			} else {
 				const components_arr = results[0] ? results[0].components : [];
@@ -1082,32 +1108,42 @@ module.exports = function (logger, ev, t) {
 		// now that we have the data, rebuild the white list
 		function process_data(components, sig_docs, cb_built) {
 			const urls2add = {};									// grab all the urls we might add for any component, use map to avoid duplicates
+			urls2add[t.misc.fmt_url(ev.DEPLOYER_URL)] = true;
 
-			for (let i in components) {								// add hostnames from component docs
+			for (let i in components) {								// add urls from component docs
 				const comp_doc = components[i];
 				if (comp_doc.api_url) {
-					urls2add[t.misc.get_host(comp_doc.api_url)] = true;
+					urls2add[t.misc.fmt_url(comp_doc.api_url)] = true;
 				}
 				if (comp_doc.ca_url) {								// ca_url is legacy
-					urls2add[t.misc.get_host(comp_doc.ca_url)] = true;
+					urls2add[t.misc.fmt_url(comp_doc.ca_url)] = true;
 				}
 				if (comp_doc.grpcwp_url) {
-					urls2add[t.misc.get_host(comp_doc.grpcwp_url)] = true;
+					urls2add[t.misc.fmt_url(comp_doc.grpcwp_url)] = true;
 				}
 				if (comp_doc.operations_url) {
-					urls2add[t.misc.get_host(comp_doc.operations_url)] = true;
+					urls2add[t.misc.fmt_url(comp_doc.operations_url)] = true;
 				}
 				if (comp_doc.osnadmin_url) {
-					urls2add[t.misc.get_host(comp_doc.osnadmin_url)] = true;
+					urls2add[t.misc.fmt_url(comp_doc.osnadmin_url)] = true;
+				}
+				if (comp_doc.api_url_saas) {
+					urls2add[t.misc.fmt_url(comp_doc.api_url_saas)] = true;
+				}
+				if (comp_doc.operations_url_saas) {
+					urls2add[t.misc.fmt_url(comp_doc.operations_url_saas)] = true;
+				}
+				if (comp_doc.osnadmin_url_saas) {
+					urls2add[t.misc.fmt_url(comp_doc.osnadmin_url_saas)] = true;
 				}
 			}
 
-			for (let i in sig_docs) {								// also add hostnames from signature collection docs
+			for (let i in sig_docs) {								// also add urls from signature collection docs
 				for (let x in sig_docs[i].orgs2sign) {
 					for (let y in sig_docs[i].orgs2sign[x].peers) {
-						const hostname = t.misc.get_host(sig_docs[i].orgs2sign[x].peers[y]);
-						if (hostname) {
-							urls2add[hostname] = true;
+						const url_str = t.misc.fmt_url(sig_docs[i].orgs2sign[x].peers[y]);
+						if (url_str) {
+							urls2add[url_str] = true;
 						}
 					}
 				}
@@ -1119,13 +1155,13 @@ module.exports = function (logger, ev, t) {
 			};
 			const new_list = Object.keys(urls2add);
 
-			if (t.misc.is_equal_arr(ev.HOST_WHITE_LIST, new_list)) {	// if its the same, don't make a new write, would be pointless churn
-				logger.debug('[comp lib] hostname safelist has not changed, skipping a settings doc update');
+			if (t.misc.is_equal_arr(ev.URL_SAFE_LIST, new_list)) {	// if its the same, don't make a new write, would be pointless churn
+				logger.debug('[comp lib] url safelist has not changed, skipping a settings doc update');
 				return cb_built(null, new_list);
 			} else {
-				ev.HOST_WHITE_LIST = new_list;
+				ev.URL_SAFE_LIST = new_list;
 				t.otcc.repeatWriteSafe(opts, (settings_doc) => {		// don't use wr_doc in callback, use "doc" passed into writeDoc
-					settings_doc.host_white_list = new_list;
+					settings_doc.url_safe_list = new_list;
 					return { doc: settings_doc };						// doc has the right _rev
 				}, (err) => {
 					if (err) {
@@ -1205,7 +1241,7 @@ module.exports = function (logger, ev, t) {
 
 		// build a notification doc
 		const notice = {
-			message: 'deleting components by tag: ' + lc_tag,
+			message: 'deleting components by tag "' + lc_tag + '"',
 			tag: lc_tag,
 		};
 		t.notifications.procrastinate(req, notice);
@@ -1640,15 +1676,124 @@ module.exports = function (logger, ev, t) {
 	// build a status url for the component, from a component doc
 	//--------------------------------------------------
 	exports.build_status_url = (comp_doc) => {
-		let ret = null;
 		if (comp_doc) {
+
+			// if its been migrated use the legacy routes
+			if (comp_doc.migrated_from === ev.STR.LOCATION_IBP_SAAS && comp_doc.preferred_url !== ev.STR.OPEN_SOURCE_STYLE) {
+				if (comp_doc.type === ev.STR.CA && comp_doc.api_url_saas) {
+					return comp_doc.api_url_saas + '/cainfo';			// CA's use this route
+				} else if (comp_doc.operations_url_saas && (comp_doc.type === ev.STR.ORDERER || comp_doc.type === ev.STR.PEER)) {
+					return comp_doc.operations_url_saas + '/healthz';	// peers and orderers use this route
+				}
+			}
+
+			// if it hasn't been migrated use regular routes
 			if (comp_doc.type === ev.STR.CA && comp_doc.api_url) {
-				ret = comp_doc.api_url + '/cainfo';					// CA's use this route
+				return comp_doc.api_url + '/cainfo';					// CA's use this route
 			} else if (comp_doc.operations_url && (comp_doc.type === ev.STR.ORDERER || comp_doc.type === ev.STR.PEER)) {
-				ret = comp_doc.operations_url + '/healthz';			// peers and orderers use this route
+				return comp_doc.operations_url + '/healthz';			// peers and orderers use this route
 			}
 		}
-		return ret;
+
+		return null;
+	};
+
+	//--------------------------------------------------
+	// Get the version of a component by trying to reach its fabric version endpoint
+	//--------------------------------------------------
+	/*
+		opts: {
+			timeout_ms: 0,		// [optional] http timeout for asking the component
+			_max_attempts: 2	// [optional] max number of http reqs to send including orig and retries
+		}
+	*/
+	exports.get_version = (comp_doc, opts, cb) => {
+		if (!opts) { opts = {}; }
+		const options = {
+			method: 'GET',
+			baseUrl: null,
+			url: exports.build_version_url(comp_doc),
+			headers: { 'Accept': 'application/json' },
+			timeout: !isNaN(opts.timeout_ms) ? Number(opts.timeout_ms) : ev.HTTP_STATUS_TIMEOUT, // give up quickly b/c we don't want status api to hang
+			rejectUnauthorized: false,									// self signed certs are okay
+			_name: 'ver_req',
+			_max_attempts: opts._max_attempts || 2,
+			_retry_codes: {												// list of codes we will retry
+				'429': '429 rate limit exceeded aka too many reqs',
+				//'408': '408 timeout',									// version calls should not retry a timeout, takes too long
+			}
+		};
+
+		if (options.url === null) {										// no url to hit... error out
+			logger.error('[component] unable to get component version b/c url to use in doc is missing... id:', comp_doc._id);
+			return cb({
+				statusCode: 500,
+				version: '-',
+				_http_error: 502
+			});
+		} else {
+			t.misc.retry_req(options, (err, resp) => {
+				const code = t.ot_misc.get_code(resp);
+				const body = format_body(resp);
+				let ver = null;
+				if (comp_doc.type === ev.STR.CA) {					// ca's have a different response
+					ver = (body && body.result) ? body.result.Version : null;
+				} else {
+					ver = body ? body.Version : null;
+				}
+
+				return cb(null, {
+					statusCode: code,
+					_body: body,
+					version_url: options.url,
+					version: t.misc.prettyPrintVersion(ver),
+					_http_error: t.ot_misc.is_error_code(code) ? code : undefined,
+				});
+			});
+		}
+
+		// json parse the body if asked for
+		function format_body(resp) {
+			let body = null;
+			if (resp && resp.body) {								// parse body to JSON
+				if (typeof resp.body === 'string') {
+					try { body = JSON.parse(resp.body); }
+					catch (e) {
+						logger.error('[component] unable to format version response as JSON for component id', comp_doc._id, e);
+						return null;
+					}
+				} else {
+					return resp.body;
+				}
+			}
+			return body;
+		}
+	};
+
+	//--------------------------------------------------
+	// build a version url for the component, from a component doc
+	//--------------------------------------------------
+	exports.build_version_url = (comp_doc) => {
+		if (comp_doc) {
+
+			// if its been migrated use the legacy routes
+			if (comp_doc.migrated_from === ev.STR.LOCATION_IBP_SAAS) {
+				if (comp_doc.type === ev.STR.CA && comp_doc.api_url) {
+					return comp_doc.api_url_saas + '/cainfo';			// CA's use this route
+				} else if (comp_doc.operations_url_saas && (comp_doc.type === ev.STR.ORDERER || comp_doc.type === ev.STR.PEER)) {
+					return comp_doc.operations_url_saas + '/version';	// peers and orderers use this route
+				}
+			}
+
+			// if it hasn't been migrated use regular routes
+			if (comp_doc.type === ev.STR.CA && comp_doc.api_url) {
+				return comp_doc.api_url + '/cainfo';					// CA's use this route
+			} else if (comp_doc.operations_url && (comp_doc.type === ev.STR.ORDERER || comp_doc.type === ev.STR.PEER)) {
+				return comp_doc.operations_url + '/version';			// peers and orderers use this route
+			}
+		}
+
+		return null;
 	};
 
 	//--------------------------------------------------

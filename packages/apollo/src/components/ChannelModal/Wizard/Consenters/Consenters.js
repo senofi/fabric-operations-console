@@ -14,12 +14,12 @@
  * limitations under the License.
 */
 
-import TrashCan20 from '@carbon/icons-react/lib/trash-can/20';
-import { Button, Checkbox, Toggle } from 'carbon-components-react';
+import { TrashCan } from '@carbon/icons-react';
+import { Button, Checkbox, Toggle } from "@carbon/react";
 import _ from 'lodash';
 import PropTypes from 'prop-types';
 import React, { Component } from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import { updateState } from '../../../../redux/commonActions';
 import * as constants from '../../../../utils/constants';
@@ -114,7 +114,7 @@ class Consenters extends Component {
 			overrideRaftDefaults,
 			updateState,
 			snapshot_interval_size,
-			translate,
+			t: translate,
 			use_default_consenters,
 			use_osnadmin,
 		} = this.props;
@@ -146,7 +146,7 @@ class Consenters extends Component {
 		// remove consenter options that have already been selected, match on host + port
 		if (allowed_raftNodes) {
 			if (consenters) {
-				availableConsenters = allowed_raftNodes.filter(x => !consenters.find(y => y.port === x.port && y.host === x.host));
+				availableConsenters = allowed_raftNodes.filter(x => !consenters.find(y => Number(y.port) === Number(x.port) && y.host === x.host));
 			} else {
 				availableConsenters = allowed_raftNodes;
 			}
@@ -240,7 +240,7 @@ class Consenters extends Component {
 														className="ibp-add-channel-table"
 													>
 														<div className="ibp-add-consenter-table-name">
-															<input className="bx--text-input"
+															<input className="cds--text-input"
 																value={name}
 																disabled={true}
 																aria-label={translate('name') + ' ' + name}
@@ -249,14 +249,14 @@ class Consenters extends Component {
 														<Button
 															hasIconOnly
 															type="button"
-															renderIcon={TrashCan20}
+															renderIcon={() => <TrashCan size={20} />}
 															kind="secondary"
 															id={'ibp-remove-consenter-' + i}
 															iconDescription={translate('remove_consenter')}
 															tooltipAlignment="center"
 															tooltipPosition="bottom"
 															className="ibp-consenters-remove"
-															size="default"
+															size="lg"
 															onClick={() => {
 																this.onDeleteConsenter(i);
 															}}
@@ -430,7 +430,7 @@ const dataProps = {
 Consenters.propTypes = {
 	...dataProps,
 	updateState: PropTypes.func,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default connect(
@@ -440,4 +440,4 @@ export default connect(
 	{
 		updateState,
 	}
-)(withLocalize(Consenters));
+)(withTranslation()(Consenters));

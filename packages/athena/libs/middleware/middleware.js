@@ -26,6 +26,7 @@ module.exports = function (logger, ev, t) {
 		couchdb: require('./couchdb_middleware.js')(logger, ev, t, exports),
 		ldap: require('./ldap_middleware.js')(logger, ev, t, exports),
 		oauth: require('./oauth_middleware.js')(logger, ev, t, exports),
+		oidc: require('./oauth_middleware.js')(logger, ev, t, exports),
 	};
 	const eTrack = t.event_tracker.trackViaIntercept;
 
@@ -35,6 +36,9 @@ module.exports = function (logger, ev, t) {
 
 	// create a middleware that only tracks the api, no auth
 	exports.public = [storeIAMTokens, eTrack];
+
+	// create a middleware that tracks the api, with auth of any kind
+	exports.basic = [eTrack, checkAuthentication];
 
 	// create saas components
 	exports.verify_create_action_session = [eTrack, blockReadOnlyMode, isDeployerConfigured, needCreateAction, checkAuthentication, permitAction];
@@ -53,10 +57,14 @@ module.exports = function (logger, ev, t) {
 	exports.verify_remove_action_ak = [eTrack, blockReadOnlyMode, needRemoveAction, allowAkToDoAction];
 
 	// manage a component
-	exports.verify_manage_action_session = [eTrack, needManageAction, checkAuthentication, permitAction];
-	exports.verify_manage_action_ak = [eTrack, needManageAction, allowAkToDoAction];
+	exports.verify_manage_action_session = [eTrack, blockReadOnlyMode, needManageAction, checkAuthentication, permitAction];
+	exports.verify_manage_action_ak = [eTrack, blockReadOnlyMode, needManageAction, allowAkToDoAction];
 	exports.verify_manage_action_session_dep = [eTrack, blockReadOnlyMode, isDeployerConfigured, needManageAction, checkAuthentication, permitAction];
 	exports.verify_manage_action_ak_dep = [eTrack, blockReadOnlyMode, isDeployerConfigured, needManageAction, allowAkToDoAction];
+
+	// manage migration (these are allowed during read only mode)
+	exports.verify_migration_action_session_dep = [eTrack, isDeployerConfigured, needManageAction, checkAuthentication, permitAction];
+	exports.verify_migration_action_ak_dep = [eTrack, isDeployerConfigured, needManageAction, allowAkToDoAction];
 
 	// restart athena
 	exports.verify_restart_action_session = [eTrack, needRestartAction, checkAuthentication, permitAction];
@@ -85,6 +93,10 @@ module.exports = function (logger, ev, t) {
 	// manage api keys (not valid on SaaS)
 	exports.verify_apiKey_action_session = [eTrack, blockReadOnlyMode, needApiKeyAction, checkAuthentication, permitAction];
 	exports.verify_apiKey_action_ak = [eTrack, blockReadOnlyMode, needApiKeyAction, allowAkToDoAction];
+
+	// manage generate bearer token using api key
+	exports.verify_apiKey_bearer_action_session = [eTrack, blockReadOnlyMode, needViewAction, checkAuthentication, permitAction];
+	exports.verify_apiKey_bearer_action_ak = [eTrack, blockReadOnlyMode, needViewAction, allowAkToDoAction];
 
 	// manage notifications
 	exports.verify_notifications_action_session = [eTrack, needNotificationAction, checkAuthentication, permitAction];
@@ -284,7 +296,6 @@ module.exports = function (logger, ev, t) {
 				return exports.unauthorized(res);
 			} else {
 				req.using_api_key = user.name;
-
 				// [1] - check if using support key
 				if (user.name === ev.SUPPORT_KEY) {
 					if (!validSupportKey(req)) {									// check the support key first
@@ -333,7 +344,6 @@ module.exports = function (logger, ev, t) {
 							return exports.unauthorized(res);
 						} else {
 							const valid_secret = t.misc.verify_secret(user.pass, doc.salt, doc.hashed_secret);
-
 							if (!valid_secret) {											// invalid secret
 								logger.error('[middle] invalid api key secret for api key id:', user.name);
 								return exports.unauthorized(res);
@@ -567,7 +577,7 @@ module.exports = function (logger, ev, t) {
 				};
 
 				// find if we already have a token doc (we only want to store 1, reuse the doc if its already here)
-				t.otcc.getDoc({ db_name: ev.DB_SYSTEM, _id: doc._id }, (err, access_token_doc) => {
+				t.otcc.getDoc({ db_name: ev.DB_SYSTEM, _id: doc._id, SKIP_CACHE: true }, (err, access_token_doc) => {
 					if (err || !access_token_doc) {
 						logger.debug('[migration] existing iam access token doc not found, will create it');
 					} else {

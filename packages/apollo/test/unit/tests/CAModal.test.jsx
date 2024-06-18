@@ -30,6 +30,7 @@ const should = chai.should();
 jest.mock('../../../src/utils/actionsHelper', () => {
 	return {
 		canCreateComponent: () => true,
+		canManageComponent: () => true,
 	};
 });
 
@@ -105,7 +106,7 @@ describe('CAModal component', () => {
 			onClose: onCloseStub,
 			onComplete: onCompleteStub,
 			updateState: updateStateStub,
-			translate: translateStub,
+			t: translateStub,
 		};
 	});
 

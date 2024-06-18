@@ -67,13 +67,13 @@ module.exports = function (logger, t) {
 
 	// restart athena - use caution! - note this function returns before the restart
 	exports.restart_athena = function (uuid) {
-		const date = t.misc.formatDate(Date.now(), '%M/%d/%Y %H:%m');
+		const date = t.misc.formatDate(Date.now(), '%Y/%M/%d-%H:%m:%s.%rZ');
 		const LOG_PATH = 'logs/athena_restart.log';							// must match what is in server_watcher.js
 		const restart_path = t.path.join(__dirname, '../' + LOG_PATH);
 
-		logger.debug('---------------------------- restart ----------------------------');
-		logger.info('Restarting Athena - imminent');
-		logger.debug('---------------------------- restart ----------------------------');
+		logger.silly('---------------------------- restart ----------------------------');
+		logger.info('Restarting Athena "' + process.env.ATHENA_ID + '" - imminent');
+		logger.silly('---------------------------- restart ----------------------------');
 
 		const message = date + ' - restarted via restart_athena() - uuid: ' + uuid;
 		const orig_file = t.fs.existsSync(restart_path) ? t.fs.readFileSync(restart_path) : '';
@@ -180,20 +180,20 @@ module.exports = function (logger, t) {
 	};
 
 	//-------------------------------------------------------------
-	// Check if host in url matches whitelist
+	// Check if url matches the url whitelist
 	//-------------------------------------------------------------
 	exports.validateUrl = (url, white_list_regex_array) => {
-		const host = t.misc.get_host(url);
-		if (host && Array.isArray(white_list_regex_array)) {
+		const url_str = t.misc.fmt_url(url);
+		if (url_str && Array.isArray(white_list_regex_array)) {
 			for (let i in white_list_regex_array) {
 				const regex = RegExp(white_list_regex_array[i]);
-				const match = regex.test(host);
+				const match = regex.test(url_str);
 				if (match) {
 					return true;
 				}
 			}
 		}
-		logger.warn('[ot_misc] this hostname was not found in safelist', encodeURI(host));
+		logger.warn('[ot_misc] this url was not found in safelist', encodeURI(url_str));
 		return false;
 	};
 
@@ -218,7 +218,7 @@ module.exports = function (logger, t) {
 			}
 		}
 		settings.CONFIGTXLATOR_TIMEOUT = -1;
-		return settings.CONFIGTXLATOR_URL_ORIGINAL;
+		return t.misc.format_url(settings.CONFIGTXLATOR_URL_ORIGINAL, { useIpv4: true });
 	};
 
 	//-------------------------------------------------------------
@@ -1035,7 +1035,6 @@ module.exports = function (logger, t) {
 	exports.get_api_version = function (req) {
 		const version_regex = [
 			'^/ak/api/(v\\d+)',
-			'^/api/saas/(v\\d+)',
 			'^/api/(v\\d+)'
 		];
 

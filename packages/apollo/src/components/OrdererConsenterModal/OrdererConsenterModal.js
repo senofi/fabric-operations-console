@@ -13,10 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
 */
-import { CodeSnippet } from 'carbon-components-react';
+import { CodeSnippet } from "@carbon/react";
 import PropTypes from 'prop-types';
 import React from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import { updateState } from '../../redux/commonActions';
 import { OrdererRestApi } from '../../rest/OrdererRestApi';
@@ -26,6 +26,7 @@ import Form from '../Form/Form';
 import Logger from '../Log/Logger';
 import Wizard from '../Wizard/Wizard';
 import WizardStep from '../WizardStep/WizardStep';
+import RenderParamHTML from '../RenderHTML/RenderParamHTML';
 
 const SCOPE = 'ordererConsenterModal';
 const Log = new Logger(SCOPE);
@@ -40,11 +41,12 @@ class OrdererConsenterModal extends React.Component {
 		});
 	}
 
-	removeConsenter = async() => {
+	removeConsenter = async () => {
 		try {
 			await OrdererRestApi.removeOrdererNodeFromSystemChannel({
 				...this.props.orderer,
 				ordererId: this.props.orderer.raft ? this.props.orderer.raft[0].id : this.props.orderer.id,
+				cluster_id: this.props.orderer.raft ? this.props.orderer.raft[0].cluster_id : this.props.orderer.cluster_id,
 				configtxlator_url: this.props.configtxlator_url,
 				consenter_url: window.location.protocol + '//' + this.props.consenter.url,
 			});
@@ -55,7 +57,7 @@ class OrdererConsenterModal extends React.Component {
 		}
 	};
 
-	updateOrdererCerts = async() => {
+	updateOrdererCerts = async () => {
 		try {
 			await this.retryUpdateCert(this.props.orderer.raft || [this.props.orderer]);
 			this.props.onComplete();
@@ -73,6 +75,7 @@ class OrdererConsenterModal extends React.Component {
 			await OrdererRestApi.updateOrdererCertsOnSystemChannel({
 				...this.props.orderer,
 				ordererId: orderer.id,
+				cluster_id: orderer.cluster_id,
 				configtxlator_url: this.props.configtxlator_url,
 				consenter_url: window.location.protocol + '//' + this.props.consenter.url,
 				tls_new_cert: this.props.consenter.node.client_tls_cert,
@@ -102,7 +105,7 @@ class OrdererConsenterModal extends React.Component {
 			>
 				<div className="ibp-remove-consenter-desc">
 					<p>
-						{translate('remove_consenter_system_channel_desc', {
+						{RenderParamHTML(translate, 'remove_consenter_system_channel_desc', {
 							name: (
 								<CodeSnippet
 									type="inline"
@@ -149,7 +152,7 @@ class OrdererConsenterModal extends React.Component {
 			>
 				<div>
 					<p>
-						{translate('update_consenter_system_channel_desc', {
+						{RenderParamHTML(translate, 'update_consenter_system_channel_desc', {
 							name: (
 								<CodeSnippet
 									type="inline"
@@ -198,7 +201,7 @@ class OrdererConsenterModal extends React.Component {
 	}
 
 	render() {
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		const mode = this.props.mode;
 		return (
 			<Wizard
@@ -230,7 +233,7 @@ OrdererConsenterModal.propTypes = {
 	onClose: PropTypes.func,
 	orderer: PropTypes.object,
 	updateState: PropTypes.func,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default connect(
@@ -242,4 +245,4 @@ export default connect(
 	{
 		updateState,
 	}
-)(withLocalize(OrdererConsenterModal));
+)(withTranslation()(OrdererConsenterModal));

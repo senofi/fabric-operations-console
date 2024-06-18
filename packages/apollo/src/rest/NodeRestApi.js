@@ -27,7 +27,7 @@ const Log = new Logger('NodeRestApi');
 const CREATED_COMPONENT_LOCATION = 'ibm_saas';
 
 // Expiration time for cached node list
-const CACHE_TIMEOUT = 500;
+const CACHE_TIMEOUT_MS = 4000;
 
 /**
  * A helper so we don't repeat `blah.location === 'ibm_saas'` all over the code.
@@ -68,13 +68,22 @@ class NodeRestApi {
 		nodes: null, // most recent list of all nodes
 		expires: 0, // expiration time for most recent list
 	};
+	static node_cache_id = {
+		/*
+			"peer1": {
+				nodes: null, // most recent list of all nodes
+				expires: 0, // expiration time for most recent list
+			}
+		*/
+	};
 
 	static host_url = null;
 	static setDefaultHostUrl(host_url) {
 		NodeRestApi.host_url = host_url;
 	}
 
-	static async getNodeDataFromAthena() {
+	// get all nodes back from athena (with deployment data)
+	static async api_getAllComponents() {
 		const skip_cache = NodeRestApi.skip_cache;
 		try {
 			let url = '/api/v3/components?deployment_attrs=included';
@@ -87,6 +96,25 @@ class NodeRestApi {
 		} catch (error) {
 			if (skip_cache && error.statusCode === 503) {
 				return RestApi.get('/api/v3/components?deployment_attrs=included');
+			} else {
+				throw error;
+			}
+		}
+	}
+
+	// get a single node back from athena (with deployment data if possible)
+	static async api_getComponent(id, skip_cache) {
+		try {
+			let url = '/api/v3/components/' + id + '?deployment_attrs=included';
+			if (skip_cache) {
+				url = url + '&skip_cache=yes';
+			}
+			return await RestApi.get(url);
+		} catch (error) {
+
+			// if we could not get deployment data b/c we said it couldn't use the cache, try again using cache
+			if (error && error.statusCode === 503 && skip_cache) {
+				return await RestApi.get('/api/v3/components/' + id + '?deployment_attrs=included');
 			} else {
 				throw error;
 			}
@@ -109,7 +137,7 @@ class NodeRestApi {
 	 * @param {boolean} skip_cache True if we need to force a new REST call
 	 * @returns {Promise<Component[]>} Sorted list of all components
 	 */
-	static async getAllNodes(skip_cache) {
+	static async getAllNodesClientCache(skip_cache) {
 		// Check if we have cached data that we can just return
 		const now = new Date().getTime();
 		if (!skip_cache && NodeRestApi.node_cache.nodes && NodeRestApi.node_cache.expires > now) {
@@ -121,7 +149,7 @@ class NodeRestApi {
 		}
 		// We need to make a new API call
 		const pending = new Promise((resolve, reject) => {
-			NodeRestApi.getNodeDataFromAthena()
+			NodeRestApi.api_getAllComponents()
 				.then(results => {
 					let nodes = results.components;
 					// Sort results based on display name
@@ -132,16 +160,12 @@ class NodeRestApi {
 					});
 					// Ensure that all msps have a host_url value
 					nodes.forEach(node => {
-						if (node.type === 'msp' || node.type === 'msp-external') {
-							if (!node.host_url) {
-								node.host_url = NodeRestApi.host_url;
-							}
-						}
+						node = this.init_fields(node);
 					});
 					// Save results in cache
 					NodeRestApi.node_cache = {
 						nodes,
-						expires: new Date().getTime() + CACHE_TIMEOUT,
+						expires: new Date().getTime() + CACHE_TIMEOUT_MS,
 					};
 					// Return list of nodes
 					resolve(nodes);
@@ -159,6 +183,17 @@ class NodeRestApi {
 		// Track request so we can reuse it if needed
 		NodeRestApi.pending = pending;
 		return NodeRestApi.pending;
+	}
+
+	// Ensure that all msps have a host_url value
+	// dsh todo why is this done on the client side...? actually why is it done at all, is host_url the right field?
+	static init_fields(node) {
+		if (node && (node.type === 'msp' || node.type === 'msp-external')) {
+			if (!node.host_url) {
+				node.host_url = NodeRestApi.host_url;
+			}
+		}
+		return node;
 	}
 
 	/**
@@ -198,16 +233,18 @@ class NodeRestApi {
 
 	/**
 	 * Get a sorted list of all the components of a given type
-	 * @param {string} type The type of nodes to return
+	 * @param {string[]} types The fabric types of nodes to return
 	 * @param {boolean} skip_cache True if we need to force a new REST call
+	 * @param {boolean} flat True if we want each node in an ordering service cluster to be its own element in the response, false if we want them nested under a parent node
 	 * @returns {Promise<Component[]>} Sorted list of all components of a given type
 	 */
-	static async getNodes(type, skip_cache) {
-		let nodes;
+	static async getNodes(types, skip_cache, flat) {
+		let nodes = [];
 		try {
-			nodes = await NodeRestApi.getAllNodes(skip_cache);
+			nodes = await NodeRestApi.getAllNodesClientCache(skip_cache);
 			// NOTE: the nodes list is already sorted at this point
 		} catch (error) {
+			Log.error('caught error getting all nodes:', error);
 			if (error.statusCode === 404 && error.msg === 'no components exist') {
 				nodes = [];
 			} else {
@@ -219,8 +256,67 @@ class NodeRestApi {
 				throw error;
 			}
 		}
-		const filteredNodes = type ? nodes.filter(n => n.type === type) : nodes;
-		return this.formatNodes(filteredNodes);
+
+		// filter down nodes only to the types asked for
+		const filteredNodes = (Array.isArray(types) && types.length > 0) ? nodes.filter(n => n && types.includes(n.type)) : nodes;
+		const tmp = await this.formatNodes(filteredNodes);
+
+		// if flat is asked for, return each nested ordering node at the top level
+		if (flat) {
+			let ret = [];
+			for (let i in tmp) {
+				if (tmp[i].raft) {
+					ret = ret.concat(tmp[i].raft);	// add all children if found (parent node is inside array)
+				} else {
+					ret.push(tmp[i]);				// add this node
+				}
+			}
+			return ret;
+		} else {
+			return tmp;
+		}
+	}
+
+	/**
+	 * Get a sorted list of all the components in the system
+	 * @param {string} id ID of the component
+	 * @param {boolean} skip_cache True if we need to force a new REST call
+	 * @returns {Promise<Component[]>} Sorted list of all components
+	 */
+	static async getNodeByIdClientCache(id, skip_cache) {
+		let component;
+
+		// Check if we have cached data that we can just return
+		const now = Date.now();
+		if (!skip_cache && NodeRestApi.node_cache_id[id] && NodeRestApi.node_cache_id[id].expires > now) {
+			return NodeRestApi.node_cache_id[id].node;
+		}
+
+		try {
+			component = await this.api_getComponent(id, skip_cache);
+			component = this.init_fields(component);
+		} catch (error) {
+			Log.error('caught error getting node by id:', error);
+			if (error.statusCode === 404 && error.msg === 'no components exist') {
+				component = null;
+			} else {
+				// todo page reload logic shouldn't be in this library.
+				if (error && error.error === 'login to use this api') {
+					// session has expired, reload page to force login
+					window.location.reload();
+				}
+				throw error;
+			}
+		}
+		const nodes = await this.formatNodes([component]);
+
+		// Save results in cache
+		NodeRestApi.node_cache_id[id] = {
+			node: nodes[0],
+			expires: Date.now() + CACHE_TIMEOUT_MS,
+		};
+
+		return nodes[0];		// formatNodes gives back an array, but we only have an array of one
 	}
 
 	/**
@@ -232,7 +328,7 @@ class NodeRestApi {
 	static async getClusterNodes(cluster_id, skip_cache) {
 		let nodes;
 		try {
-			nodes = await NodeRestApi.getAllNodes(skip_cache);
+			nodes = await NodeRestApi.getAllNodesClientCache(skip_cache);
 			// NOTE: the nodes list is already sorted at this point
 		} catch (error) {
 			if (error.statusCode === 404 && error.msg === 'no components exist') {
@@ -250,6 +346,7 @@ class NodeRestApi {
 		return this.formatNodes(filteredNodes);
 	}
 
+	// dsh todo stop calling getAvailableVersions all the time!
 	static async formatNodes(filteredNodes) {
 		// Attaching available versions to nodes allows us to show users that updated are available to a given node.
 		const upgradeVersions = await NodeRestApi.getAvailableVersions();
@@ -258,7 +355,9 @@ class NodeRestApi {
 		const clusters = {};
 		const ff = await SettingsApi.getFeatureFlags();
 		const patch_1_4to2_x_enabled = ff.patch_1_4to2_x_enabled;
+
 		filteredNodes.forEach(originalNode => {
+
 			// Get santitized copy of node
 			const node = NodeRestApi.sanitizeNode(originalNode);
 			if (node.backend_addr) {
@@ -305,6 +404,7 @@ class NodeRestApi {
 				}
 			}
 			node.isUpgradeAvailable = isUpgradeAvailable;
+
 			// Check if this is a RAFT node that is part of an ordering service cluster
 			if (node.cluster_id) {
 				let cluster = clusters[node.cluster_id];
@@ -329,9 +429,13 @@ class NodeRestApi {
 				newNodes.push(node);
 			}
 		});
-		newNodes.forEach(async node => {
-			await NodeRestApi.updateNodeVersion(node);
-		});
+
+		// do NOT not use something.forEach(async !!!!
+		// b/c forEach does not block each async await call, the different loops fire at the same time and race conditions occur
+		for (let i in newNodes) {
+			const node = newNodes[i];
+			newNodes[i] = await NodeRestApi.updateNodeVersion(node);
+		}
 		return newNodes;
 
 		// parse the version to "major.minor.patch" (pre-release digits are kept too if provided)
@@ -414,7 +518,7 @@ class NodeRestApi {
 		const prefix = `Create ${node.display_name}:`;
 		try {
 			Log.info(`${prefix} sending request`);
-			const result = await ValidatedRestApi.post('/api/saas/v3/components', node);
+			const result = await ValidatedRestApi.post('/api/v3/kubernetes/components', node);
 			NodeRestApi.node_cache.expires = 0;
 			NodeRestApi.skip_cache = true;
 			if (result && result.created && _.isArray(result.created)) {
@@ -445,19 +549,7 @@ class NodeRestApi {
 		}
 	}
 
-	/**
-	 * Get a node from the identifier
-	 * @param {string} id Idenifier for the node to find
-	 * @return {Promise<Component|Error>} A Promise that resolves with the new
-	 * component record or rejects with an error if the node could not be found
-	 */
-	// [! Do NOT use this function on new code !]
-	// this function is awful performance wise, it loads ALL components and looks up versions & status on all nodes to find details on 1 node.
-	// dsh todo - remove this function...!
-	static async getNodeById(id) {
-		const nodes = await NodeRestApi.getNodes();		// getNodes() is the culprit
-		return NodeRestApi.findNode(id, nodes);
-	}
+
 
 	// get the cluster data
 	static async getClusterById(id) {
@@ -507,7 +599,7 @@ class NodeRestApi {
 		const prefix = `Remove component ${id}:`;
 		try {
 			Log.info(`${prefix} sending request`);
-			const resp = await FormattedRestApi.delete(`/api/v2/components/${id}`);
+			const resp = await FormattedRestApi.delete(`/api/v3/components/${id}`);
 			NodeRestApi.node_cache.expires = 0;
 			NodeRestApi.skip_cache = true;
 			return resp;
@@ -536,7 +628,7 @@ class NodeRestApi {
 		const prefix = `Delete component ${id}${force ? ' forced' : ''}:`;
 		try {
 			Log.info(`${prefix} sending request`);
-			const resp = await FormattedRestApi.delete(`/api/saas/v2/components/${id}${force ? '?force=yes' : ''}`);
+			const resp = await FormattedRestApi.delete(`/api/v3/kubernetes/components/${id}${force ? '?force=yes' : ''}`);
 			NodeRestApi.node_cache.expires = 0;
 			NodeRestApi.skip_cache = true;
 			return resp;
@@ -565,7 +657,7 @@ class NodeRestApi {
 		const prefix = `Delete components w/ tag ${tag}${force ? ' forced' : ''}:`;
 		try {
 			Log.info(`${prefix} sending request`);
-			const resp = await FormattedRestApi.delete(`/api/saas/v2/components/tags/${tag}${force ? '?force=yes' : ''}`);
+			const resp = await FormattedRestApi.delete(`/api/v3/kubernetes/components/tags/${tag}${force ? '?force=yes' : ''}`);
 			NodeRestApi.node_cache.expires = 0;
 			NodeRestApi.skip_cache = true;
 			return resp && resp.removed;
@@ -614,32 +706,48 @@ class NodeRestApi {
 	/**
 	 * Update version information (if available) for the node
 	 * @param {Component} node Component record to be updated
-	 * @param {boolean} doNotRecurse If true it will not recurse over raft nodes - prevents infinite loop/run away
 	 * @return {Promise<Component>} A Promise that resolves with the updated component record
 	 */
-	static async updateNodeVersion(node, doNotRecurse) {
-		if (node.raft && !doNotRecurse) {
-			for (let i = 0; i < node.raft.length; i++) {
-				await NodeRestApi.updateNodeVersion(node.raft[i], true);
-			}
-		} else {
-			if (node.operations_url && !node.version) {
-				let opts = {
-					url: node.operations_url + '/version',
-					method: 'GET',
-				};
-				try {
-					const resp = await RestApi.post('/api/v2/proxy/', opts);
-					const version = resp ? JSON.parse(JSON.stringify(resp)) : null;
-					if (version && version.Version) {
-						node.version = version.Version;
+	static async updateNodeVersion(node) {
+		if (node.raft) {
+			let reqs = node.raft.map(async node => {
+				if (node && node.operations_url && !node.version) {	// only ask if we don't already have it
+					try {
+						const version = await get_fabric_version_api(node);
+						node.version = version;
+					} catch (err) {
+						// do nothing
 					}
-				} catch (err) {
-					//do nothing?
 				}
+			});
+			await Promise.all(reqs);		// dsh todo - limit number of requests at a time
+			return node;
+		} else {
+			if (node && node.operations_url && !node.version) {	// only ask if we don't already have it
+				try {
+					const version = await get_fabric_version_api(node);
+					node.version = version;
+				} catch (err) {
+					// do nothing
+				}
+				return node;
+			} else {
+				return node;
 			}
 		}
-		return node;
+
+		// api to get fabric version of the component (not from db, but ask the component)
+		async function get_fabric_version_api(node) {
+			let opts = {
+				url: node.operations_url + '/version',
+				method: 'GET',
+			};
+			const resp = await RestApi.post('/api/v3/proxy/', opts);
+			const version = resp ? JSON.parse(JSON.stringify(resp)) : null;
+			if (version && version.Version && typeof version.Version === 'string') {
+				return version.Version.toLowerCase().trim();
+			}
+		}
 	}
 
 	/**
@@ -647,15 +755,14 @@ class NodeRestApi {
 	 * @param {string} id Idenifier for the node to find
 	 * @param {boolean} includePrivateKeyAndCert True if the private key and certificate for
 	 * associated identities should be included in the response
+	 * @param {boolean} skip_cache True if the server and client cache should be skipped
 	 * @return {Promise<Component|Error>} A Promise that resolves with
 	 * the new component record or rejects with an error if the node could not be found
 	 */
-	// [! Do NOT use this function on new code !]
-	// horrible performance!
-	// dsh todo remove calls to this function where possible.
-	static async getNodeDetails(id, includePrivateKeyAndCert) {
-		const node = await NodeRestApi.getNodeById(id);
-		return await NodeRestApi.processDetails(node, id, includePrivateKeyAndCert);
+	static async getNodeDetails(id, includePrivateKeyAndCert, skip_cache) {
+		let node = await NodeRestApi.getNodeByIdClientCache(id, skip_cache);
+		node = await NodeRestApi.processDetails(node, null, includePrivateKeyAndCert);
+		return node;
 	}
 
 	// get ordering cluster details
@@ -716,7 +823,7 @@ class NodeRestApi {
 				url: node.operations_url + '/healthz',
 				method: 'GET',
 			};
-			return RestApi.post('/api/v2/proxy/', opts);
+			return RestApi.post('/api/v3/proxy/', opts);
 		} else {
 			// we do not have url to use for health check, so just
 			// resolve it as null
@@ -748,7 +855,7 @@ class NodeRestApi {
 				};
 			}
 		});
-		return RestApi.put(`/api/saas/v2/components/${node.id}`, data);
+		return RestApi.put(`/api/v3/kubernetes/components/${node.id}`, data);
 	}
 
 	static getAllAvailableVersions() {
@@ -756,7 +863,7 @@ class NodeRestApi {
 			return NodeRestApi.versions.promise;
 		}
 		const promise = new Promise(resolve => {
-			const url = '/api/saas/v3/fabric/versions';
+			const url = '/api/v3/kubernetes/fabric/versions';
 			const headers = {
 				'cache-control': 'no-cache',
 			};
@@ -829,10 +936,10 @@ class NodeRestApi {
 		if (node.raft) {
 			// todo move this logic into the orderer lib
 			node.raft.forEach(raft_node => {
-				all.push(RestApi.put(`/api/saas/v3/components/${raft_node.id}`, body, headers));
+				all.push(RestApi.put(`/api/v3/kubernetes/components/${raft_node.id}`, body, headers));
 			});
 		} else {
-			all.push(RestApi.put(`/api/saas/v3/components/${node.id}`, body, headers));
+			all.push(RestApi.put(`/api/v3/kubernetes/components/${node.id}`, body, headers));
 		}
 		return (await Promise.all(all))[0];
 	}
@@ -879,7 +986,7 @@ class NodeRestApi {
 		const headers = {
 			'cache-control': 'no-cache',
 		};
-		return RestApi.put(`/api/saas/v2/components/${node_id}/certs`, body, headers);
+		return RestApi.put(`/api/v3/kubernetes/components/${node_id}/certs`, body, headers);
 	}
 
 	/* Upload admin certs and enable node ou(single call, one restart) */
@@ -893,7 +1000,7 @@ class NodeRestApi {
 		const headers = {
 			'cache-control': 'no-cache',
 		};
-		return RestApi.put(`/api/saas/v3/components/${node_id}`, body, headers);
+		return RestApi.put(`/api/v3/kubernetes/components/${node_id}`, body, headers);
 	}
 
 	static async getTLSSignedCertFromDeployer(nodes) {
@@ -915,17 +1022,57 @@ class NodeRestApi {
 		return updated;
 	}
 
+	// get the k8s config from a deployer api
 	static async getCurrentNodeConfig(node) {
 		let config = {};
-		if (node.dep_component_id) {
+		let resp = null;
+		try {
+			resp = await this.api_getCurrentNodeDeployer(node);
+		} catch (e) {
+			Log.error('unable to get deployer data on node:', node, e);
+		}
+
+		if (resp) {
+			config = resp.config || resp.configs;
+		}
+		return config;
+	}
+
+	// get deployer's data on this node (only works on deployed components, imported components get back null)
+	static async api_getCurrentNodeDeployer(node) {
+		if (node && isCreatedComponentLocation(node.location)) {
 			let l_type = node.type === 'fabric-ca' ? 'ca' : node.type === 'fabric-peer' ? 'peer' : 'orderer';
 			const headers = {
 				'cache-control': 'no-cache',
 			};
-			const resp = await RestApi.get(`/deployer/api/v3/instance/${NodeRestApi.siid}/type/${l_type}/component/${node.id}`, headers);
-			config = resp.config || resp.configs;
+
+			// the node.id (athena's id) field gets translated to dep_component_id on the backend
+			return await RestApi.get(`/deployer/api/v3/instance/${NodeRestApi.siid}/type/${l_type}/component/${node.id}`, headers);
+		} else {
+			return null;
 		}
-		return config;
+	}
+
+	// get resource settings on node from deployer (resources are cpu + memory + storage)
+	static async getCompsResources(component) {
+		let dep_data = null;
+		try {
+			dep_data = await this.api_getCurrentNodeDeployer(component);
+		} catch (e) {
+			Log.error('unable to get deployer data on node:', component, e);
+		}
+		if (!dep_data) {
+			return null;
+		} else {
+			return {
+				resources: dep_data.individualResources,
+				storage: dep_data.storage,
+				crstatus: {
+					reason: dep_data.crstatus ? dep_data.crstatus.reason : null,
+					type: dep_data.crstatus ? dep_data.crstatus.type : null,
+				},
+			};
+		}
 	}
 
 	static async getHSMConfig() {
@@ -933,7 +1080,7 @@ class NodeRestApi {
 	}
 
 	static async updateConfigOverride(node) {
-		await RestApi.put(`/api/saas/v2/components/${node.id}`, {
+		await RestApi.put(`/api/v2/kubernetes/components/${node.id}`, {
 			config_override: node.config_override,
 		});
 		NodeRestApi.skip_cache = true;
@@ -941,7 +1088,7 @@ class NodeRestApi {
 	}
 
 	static async updateTLSCertificate(node, tls_cert) {
-		await RestApi.put(`/api/saas/v3/components/${node.id}`, {
+		await RestApi.put(`/api/v3/kubernetes/components/${node.id}`, {
 			crypto: {
 				enrollment: {
 					ca: {
@@ -968,7 +1115,7 @@ class NodeRestApi {
 		if (tls_key) {
 			keys.tls_key = tls_key;
 		}
-		await RestApi.put(`/api/saas/v3/components/${node.id}`, {
+		await RestApi.put(`/api/v3/kubernetes/components/${node.id}`, {
 			crypto: {
 				msp: {
 					component: keys,
@@ -980,7 +1127,7 @@ class NodeRestApi {
 	}
 
 	static async performActions(node, actions) {
-		const url = '/api/saas/v3/components/' + node.type + '/' + node.id + '/actions';
+		const url = '/api/v3/kubernetes/components/' + node.type + '/' + node.id + '/actions';
 		let result = await RestApi.post(url, actions);
 		NodeRestApi.skip_cache = true;
 		return result;
@@ -1011,7 +1158,7 @@ class NodeRestApi {
 			ca: _.get(node, 'msp.tlsca.root_certs[0]'),
 			skip_cache: true,
 		};
-		let resp = await RestApi.post('/api/v2/proxy/', opts);
+		let resp = await RestApi.post('/api/v3/proxy/', opts);
 		try {
 			// older instances return the format in text (not JSON)
 			resp = JSON.parse(resp);
@@ -1031,7 +1178,17 @@ class NodeRestApi {
 			body: { spec: log_settings },
 			skip_cache: true,
 		};
-		return RestApi.post('/api/v2/proxy/', opts);
+		return RestApi.post('/api/v3/proxy/', opts);
+	}
+
+	// delete all components
+	static async deleteAllComponents() {
+		return await RestApi.delete('/api/v3/kubernetes/components/purge');
+	}
+
+	// get version summary on all components
+	static async getVersionSummary() {
+		return await RestApi.get('/api/v3/versions');
 	}
 }
 

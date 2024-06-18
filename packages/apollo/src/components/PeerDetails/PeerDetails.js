@@ -13,14 +13,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
 */
-import { Button, SkeletonPlaceholder, SkeletonText, Tab, Tabs } from 'carbon-components-react';
+import { Button, SkeletonPlaceholder, SkeletonText, Tab, Tabs, Row, TabList, TabPanels, TabPanel } from "@carbon/react";
 import _ from 'lodash';
 import PropTypes from 'prop-types';
 import React, { Component } from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import { clearNotifications, showBreadcrumb, showError, showSuccess, updateBreadcrumb, updateState } from '../../redux/commonActions';
-import ComponentApi from '../../rest/ComponentApi';
 import { NodeRestApi } from '../../rest/NodeRestApi';
 import { PeerRestApi } from '../../rest/PeerRestApi';
 import ActionsHelper from '../../utils/actionsHelper';
@@ -40,6 +39,7 @@ import ReallocateModal from '../ReallocateModal/ReallocateModal';
 import SidePanelWarning from '../SidePanelWarning/SidePanelWarning';
 import StickySection from '../StickySection/StickySection';
 import TranslateLink from '../TranslateLink/TranslateLink';
+import withRouter from '../../hoc/withRouter';
 
 const SCOPE = 'peerDetails';
 const Log = new Logger(SCOPE);
@@ -60,14 +60,15 @@ class PeerDetails extends Component {
 		});
 		this.pathname = this.props.history.location.pathname;
 		this.props.showBreadcrumb(null, null, this.pathname);
-		this.refresh();
+		this.refresh(false);
 		this.initialized = true;
 	}
 
 	refresh = skipStatusCache => {
+		console.log('this.props.match', this.props.match);
 		NodeStatus.cancel();
 		this.props.updateState(SCOPE, { loading: true, usageInfo: null });
-		PeerRestApi.getPeerDetails(this.props.match.params.peerId, false)
+		PeerRestApi.getPeerDetails(this.props.match.params.peerId, false, skipStatusCache)
 			.then(async peer => {
 				try {
 					// Get complete config from deployer because the value stored in database stores only the latest config override json
@@ -94,7 +95,7 @@ class PeerDetails extends Component {
 					}, 30000);
 					this.checkHealth(peer, skipStatusCache);
 				}
-				ComponentApi.getUsageInformation(peer)
+				NodeRestApi.getCompsResources(peer)
 					.then(usageInfo => {
 						this.props.updateState(SCOPE, { usageInfo });
 					})
@@ -138,7 +139,7 @@ class PeerDetails extends Component {
 	}
 
 	getActionLink(status) {
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		if (status === 'running')
 			return (
 				<div className="ibp-peer-details-status-link">
@@ -163,13 +164,13 @@ class PeerDetails extends Component {
 
 	startPeer = () => {
 		PeerRestApi.startPeer(this.props.details.id).then(() => {
-			this.refresh();
+			this.refresh(false);
 		});
 	};
 
 	stopPeer = () => {
 		PeerRestApi.stopPeer(this.props.details.id).then(() => {
-			this.refresh();
+			this.refresh(false);
 		});
 	};
 
@@ -188,10 +189,10 @@ class PeerDetails extends Component {
 		Helper.exportNode(this.props.details);
 	};
 
-	refreshCerts = async() => {
+	refreshCerts = async () => {
 		try {
 			const resp = await NodeRestApi.getUnCachedDataWithDeployerAttrs(this.props.details.id);
-			this.refresh();
+			this.refresh(true);
 			Log.debug('Refresh cert response:', resp);
 			this.props.showSuccess('cert_refresh_successful', {}, SCOPE);
 		} catch (error) {
@@ -226,7 +227,7 @@ class PeerDetails extends Component {
 	}
 
 	renderNodeVersion(translate) {
-		if (!this.props.details || this.props.details.location !== 'ibm_saas' || !ActionsHelper.canCreateComponent(this.props.userInfo)) {
+		if (!this.props.details || this.props.details.location !== 'ibm_saas' || !ActionsHelper.canCreateComponent(this.props.userInfo, this.props.feature_flags)) {
 			return;
 		}
 		// Do not show HSM for now
@@ -397,6 +398,7 @@ class PeerDetails extends Component {
 									{
 										text: 'reallocate_resources',
 										fn: this.showUsageModal,
+										disabled: !ActionsHelper.canCreateComponent(this.props.userInfo, this.props.feature_flags)
 									},
 								]}
 							/>
@@ -408,7 +410,7 @@ class PeerDetails extends Component {
 	}
 
 	getStickySectionGroups(translate) {
-		let versionLabel = this.props.details && this.props.details.version ? this.props.details.version : translate('version_not_found');
+		let versionLabel = this.props.details && this.props.details.version ? Helper.prettyPrintVersion(this.props.details.version) : translate('version_not_found');
 		if (this.props.details && this.props.details.isUnsupported) {
 			versionLabel = translate('unsupported');
 		}
@@ -521,16 +523,18 @@ class PeerDetails extends Component {
 				}}
 			/>
 		);
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		const notAvailable = this.props.notAvailable || (details && details.status === 'unknown');
 		return (
 			<PageContainer>
-				<PageHeader history={this.props.history}
-					headerName={peerName ? translate('peer_details_title', { peerName: peerName }) : ''}
-				/>
-				{peerNameSkeleton}
-				<div className="ibp-peer-details bx--row">
-					<div className="bx--col-lg-4">
+				<Row>
+					<PageHeader history={this.props.history}
+						headerName={peerName ? translate('peer_details_title', { peerName: peerName }) : ''}
+					/>
+					{peerNameSkeleton}
+				</Row>
+				<Row>
+					<div className="ibp-column width-25">
 						<div className="ibp-node-details-panel">
 							<div className="ibp-node-details-header">
 								<div className="ibp-node-tags" />
@@ -545,11 +549,13 @@ class PeerDetails extends Component {
 									groups={this.getStickySectionGroups(translate)}
 									refreshCerts={this.refreshCerts}
 									hideRefreshCerts={this.props.details && this.props.details.location !== 'ibm_saas'}
+									feature_flags={this.props.feature_flags}
+									userInfo={this.props.userInfo}
 								/>
 							</div>
 						</div>
 					</div>
-					<div className="bx--col-lg-12">
+					<div className="ibp-column width-75 p-lr-10">
 						{notAvailable && (
 							<div className="ibp-not-available ibp-error-panel">
 								<SidePanelWarning
@@ -580,49 +586,60 @@ class PeerDetails extends Component {
 						)}
 						{details && (
 							<Tabs aria-label="sub-navigation">
-								<Tab id="ibp-peer-details"
-									label={translate('details')}
-								>
-									{this.props.details && !this.props.details.associatedIdentity ? (
-										<div>{this.renderNoIdentity(translate)}</div>
-									) : (
-										<div>
-											<PeerChannels match={this.props.match}
-												peer={this.props.details}
-												history={this.props.history}
-												parentLoading={this.props.loading}
-											/>
-											<PeerChaincode match={this.props.match}
-												peer={this.props.details}
-												parentLoading={this.props.loading}
-											/>
-										</div>
-									)}
-								</Tab>
-								<Tab
-									id="ibp-peer-usage"
-									className={
-										details.isUpgradeAvailable && details.location === 'ibm_saas' && ActionsHelper.canCreateComponent(this.props.userInfo)
-											? 'ibp-patch-available-tab'
-											: ''
-									}
-									label={translate('usage_info', {
-										patch:
-											details.isUpgradeAvailable && details.location === 'ibm_saas' && ActionsHelper.canCreateComponent(this.props.userInfo) ? (
-												<div className="ibp-details-patch-container">
-													<div className="ibp-patch-available-tag ibp-node-details"
-														onClick={() => this.openPeerSettings('upgrade')}
-													>
-														{translate('patch_available')}
+								<TabList contained>
+									<Tab id="ibp-peer-details"
+									>
+										{translate('details')}
+									</Tab>
+									<Tab
+										id="ibp-peer-usage"
+										className={
+											details.isUpgradeAvailable && details.location === 'ibm_saas' && ActionsHelper.canCreateComponent(this.props.userInfo, this.props.feature_flags)
+												? 'ibp-patch-available-tab'
+												: ''
+										}
+									>
+										{translate('usage_info', {
+											patch:
+												details.isUpgradeAvailable && details.location === 'ibm_saas' && ActionsHelper.canCreateComponent(this.props.userInfo, this.props.feature_flags) ? (
+													<div className="ibp-details-patch-container">
+														<div className="ibp-patch-available-tag ibp-node-details"
+															onClick={() => this.openPeerSettings('upgrade')}
+														>
+															{translate('patch_available')}
+														</div>
 													</div>
-												</div>
-											) : (
-												''
-											),
-									})}
-								>
-									{this.renderUsage(translate)}
-								</Tab>
+												) : (
+													''
+												),
+										})}
+									</Tab>
+								</TabList>
+								<TabPanels>
+									<TabPanel>
+										{this.props.details && !this.props.details.associatedIdentity ? (
+											<div>{this.renderNoIdentity(translate)}</div>
+										) : (
+											<div>
+												<PeerChannels match={this.props.match}
+													peer={this.props.details}
+													history={this.props.history}
+													parentLoading={this.props.loading}
+													feature_flags={this.props.feature_flags}
+												/>
+												<PeerChaincode match={this.props.match}
+													peer={this.props.details}
+													parentLoading={this.props.loading}
+													feature_flags={this.props.feature_flags}
+												/>
+											</div>
+										)}
+									</TabPanel>
+
+									<TabPanel>
+										{this.renderUsage(translate)}
+									</TabPanel>
+								</TabPanels>
 							</Tabs>
 						)}
 						{details && this.props.showSettings && (
@@ -687,7 +704,7 @@ class PeerDetails extends Component {
 								onClose={this.hideUsageModal}
 								onComplete={() => {
 									this.props.updateState(SCOPE, { usageInfo: null });
-									ComponentApi.getUsageInformation(this.props.details)
+									NodeRestApi.getCompsResources(this.props.details)
 										.then(usageInfo => {
 											this.props.updateState(SCOPE, { usageInfo });
 										})
@@ -699,7 +716,9 @@ class PeerDetails extends Component {
 							/>
 						)}
 					</div>
-				</div>
+
+
+				</Row>
 			</PageContainer>
 		);
 	}
@@ -727,7 +746,7 @@ PeerDetails.propTypes = {
 	showError: PropTypes.func,
 	showSuccess: PropTypes.func,
 	clearNotifications: PropTypes.func,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default connect(
@@ -749,4 +768,4 @@ export default connect(
 		updateState,
 		clearNotifications,
 	}
-)(withLocalize(PeerDetails));
+)(withTranslation()(withRouter(PeerDetails)));

@@ -13,11 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
 */
-import { ContentSwitcher, InlineNotification, SkeletonPlaceholder, Switch } from 'carbon-components-react';
+import { ContentSwitcher, InlineNotification, SkeletonPlaceholder, Switch } from "@carbon/react";
 import _ from 'lodash';
 import PropTypes from 'prop-types';
 import React, { Component } from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { Trans, withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import { showError, updateState } from '../../redux/commonActions';
 import ChannelApi from '../../rest/ChannelApi';
@@ -492,16 +492,18 @@ class InstantiateChaincodeModal extends Component {
 			this.props.showError('error_occurred_during_upgrade', {}, SCOPE);
 		}
 
-		let consenterUrl;
-		if (_.has(this.props.selectedOrderer, 'raft') && this.props.selectedChannel.ordererAddresses) {
-			// Use the orderer node that is in the channel consenter set
-			const orderer = this.props.selectedOrderer.raft.find(x => this.props.selectedChannel.ordererAddresses.includes(_.toLower(x.backend_addr)));
-			consenterUrl = orderer.url2use;
+		// now find all consenting orderers on the channel and use them for retries
+		let validOrdererUrls = [];
+		if (this.props.selectedChannel && Array.isArray(this.props.selectedChannel.orderers)) {
+			validOrdererUrls = this.props.selectedChannel.orderers.map(x => {
+				return x.url2use;							// grab these urls
+			});
 		}
+
 		return new Promise((resolve, reject) => {
 			const body = {
 				peerId: this.props.selectedPeer.id,
-				orderer_url: consenterUrl ? consenterUrl : this.props.selectedOrderer.url2use,
+				orderer_hosts: validOrdererUrls,
 				channel_id: this.props.isUpgrade ? this.props.instantiatedChaincode.channel : this.props.selectedChannel.id,
 				chaincode_id: this.props.isUpgrade ? this.props.instantiatedChaincode.name : this.props.installedChaincode.name,
 				chaincode_version: this.props.isUpgrade ? this.props.selectedVersion.name : this.props.installedChaincode.version,
@@ -516,19 +518,6 @@ class InstantiateChaincodeModal extends Component {
 			ChannelApi.instantiateChaincode(body)
 				.then(resp => {
 					if (!resp.error) {
-						if (window.trackEvent) {
-							window.trackEvent('Started Process', {
-								processType: 'Smart Contract',
-								process: body.peerId,
-								tenantId: this.props.CRN.instance_id,
-								successFlag: true,
-								accountGuid: this.props.CRN.account_id,
-								milestoneName: 'Instantiate smart contract - Success',
-								environment: body.channel_id,
-								workspaceId: body.chaincode_id,
-								'user.email': this.props.userInfo.email,
-							});
-						}
 						// send async event... don't wait
 						EventsRestApi.sendInstantiateCCEvent(body.chaincode_id, body.chaincode_version, body.channel_id);
 						setTimeout(() => {
@@ -551,6 +540,7 @@ class InstantiateChaincodeModal extends Component {
 					if (error && error.grpc_resp && error.grpc_resp.statusMessage && error.grpc_resp.statusMessage.indexOf('signature set did not satisfy policy') >= 0) {
 						msg = 'error_sync_channel';
 					}
+					EventsRestApi.sendInstantiateCCEvent(body.chaincode_id, body.chaincode_version, body.channel_id, 'error');
 					reject({
 						title: msg,
 						details: error,
@@ -913,7 +903,7 @@ class InstantiateChaincodeModal extends Component {
 			if (data.selectedMembers && data.selectedMembers.length) {
 				for (let i = 1; i <= data.selectedMembers.length; i++) {
 					endorsementCounts.push({
-						name: this.props.translate('endorsement_policy', {
+						name: this.props.t('endorsement_policy', {
 							count: i,
 							total: data.selectedMembers.length,
 						}),
@@ -1056,7 +1046,7 @@ class InstantiateChaincodeModal extends Component {
 	};
 
 	render() {
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		return (
 			<Wizard
 				title={this.props.isUpgrade ? 'upgrade_smc' : 'instantiate_smc'}
@@ -1064,14 +1054,14 @@ class InstantiateChaincodeModal extends Component {
 				onSubmit={this.onSubmit}
 				submitButtonLabel={this.props.isUpgrade ? translate('upgrade_smc') : translate('instantiate_smc')}
 				error={this.props.error}
-				//loading={this.props.loading}
+				loading={this.props.isUpgrade ? false : this.props.loading}
 			>
 				<p className="ibp-modal-desc">
 					{this.props.isUpgrade ? (
 						<>
-							{translate('upgrade_chaincode_desc_1', { name: this.props.instantiatedChaincode.name, channel: this.props.instantiatedChaincode.channel })}
-							{translate('upgrade_chaincode_desc_2', { channel: this.props.instantiatedChaincode.channel })}
-							{translate('upgrade_chaincode_desc_3')}
+							<Trans>{translate('upgrade_chaincode_desc_1', { name: this.props.instantiatedChaincode.name, channel: this.props.instantiatedChaincode.channel })}</Trans>
+							<Trans>{translate('upgrade_chaincode_desc_2', { channel: this.props.instantiatedChaincode.channel })}</Trans>
+							<Trans>{translate('upgrade_chaincode_desc_3')}</Trans>
 						</>
 					) : (
 						translate('instantiate_chaincode_desc')
@@ -1151,7 +1141,7 @@ InstantiateChaincodeModal.propTypes = {
 	onClose: PropTypes.func,
 	updateState: PropTypes.func,
 	showError: PropTypes.func,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default connect(
@@ -1167,4 +1157,4 @@ export default connect(
 		updateState,
 		showError,
 	}
-)(withLocalize(InstantiateChaincodeModal));
+)(withTranslation()(InstantiateChaincodeModal));

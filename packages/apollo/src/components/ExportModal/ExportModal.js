@@ -13,10 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
 */
-import { Checkbox } from 'carbon-components-react';
+import { Checkbox } from "@carbon/react";
 import PropTypes from 'prop-types';
 import React from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import { showWarning, updateState } from '../../redux/commonActions';
 import { CertificateAuthorityRestApi } from '../../rest/CertificateAuthorityRestApi';
@@ -201,6 +201,9 @@ class ExportModal extends React.Component {
 		return new Promise((resolve, reject) => {
 			this.getExportList(submit_type)
 				.then(async list => {
+					if (this.detectIdentity(list) || this.props.exportIdentity) {
+						await UserSettingsRestApi.recordIdentityExport();
+					}
 					const node = {
 						name: 'data',
 						raft: list,
@@ -208,9 +211,6 @@ class ExportModal extends React.Component {
 					Helper.exportNodesAsZip(node);
 					if (submit_type === EXPORT_IDS_NOW) {
 						this.props.history.push('/settings');		// move off this route, back to regular settings page
-					}
-					if (this.detectIdentity(list)) {
-						await UserSettingsRestApi.recordIdentityExport();
 					}
 					resolve();
 				})
@@ -222,7 +222,7 @@ class ExportModal extends React.Component {
 	};
 
 	render() {
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		return (
 			<Wizard title="export"
 				onClose={this.props.onClose}
@@ -316,7 +316,7 @@ ExportModal.propTypes = {
 	onClose: PropTypes.func,
 	showWarning: PropTypes.func,
 	updateState: PropTypes.func,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default connect(
@@ -327,4 +327,4 @@ export default connect(
 		showWarning,
 		updateState,
 	}
-)(withLocalize(ExportModal));
+)(withTranslation()(ExportModal));

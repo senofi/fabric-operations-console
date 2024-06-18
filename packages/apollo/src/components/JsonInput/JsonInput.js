@@ -13,11 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
 */
-import { ContentSwitcher, Switch, TextInput } from 'carbon-components-react';
+import { ContentSwitcher, Switch, TextInput } from "@carbon/react";
 import _ from 'lodash';
 import PropTypes from 'prop-types';
 import React from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import { updateState } from '../../redux/commonActions';
 import Helper from '../../utils/helper';
@@ -26,7 +26,7 @@ import FileUploader from '../FileUploader/FileUploader';
 import Form from '../Form/Form';
 import ImportantBox from '../ImportantBox/ImportantBox';
 import SVGs from '../Svgs/Svgs';
-import { WarningFilled20 } from '@carbon/icons-react/es';
+import { WarningFilled } from '@carbon/icons-react';
 
 const SCOPE = 'jsonInput';
 
@@ -404,7 +404,7 @@ export class JsonInput extends React.Component {
 	}
 
 	render() {
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		return (
 			<div>
 				{this.props.onlyFileUpload && this.renderJSONUpload(translate)}
@@ -470,7 +470,7 @@ export class JsonInput extends React.Component {
 										aria-label={translate('name')}
 										readOnly={this.props.readOnly}
 									/>
-									{item.error ? <WarningFilled20 className="ibp-file-uploader-error-icon" /> : null}
+									{item.error ? <WarningFilled size={20} className="ibp-file-uploader-error-icon" /> : null}
 									{this.showErrorDetail(item.error, translate)}
 									<button
 										id={this.props.id + '-json-delete-' + i}
@@ -523,7 +523,7 @@ JsonInput.propTypes = {
 	onChange: PropTypes.func,
 	updateState: PropTypes.func,
 	readOnly: PropTypes.bool,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default connect(
@@ -533,4 +533,4 @@ export default connect(
 	{
 		updateState,
 	}
-)(withLocalize(JsonInput));
+)(withTranslation()(JsonInput));

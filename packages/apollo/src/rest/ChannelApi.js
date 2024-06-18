@@ -42,7 +42,7 @@ class ChannelApi {
 	}
 
 	static async getChannel(id, peerId) {
-		const nodes = await NodeRestApi.getNodes();
+		const nodes = await NodeRestApi.getNodes(null, null, true);
 		const peers = await PeerRestApi.getPeersWithCerts();
 		let o_channelList = [];
 		let errors = [];
@@ -249,6 +249,129 @@ class ChannelApi {
 		}
 	}
 
+	// faster version of getChannel - channel id must be provided
+	static async getChannelDetails(channel_id) {
+		const ordering_nodes = await NodeRestApi.getNodes(['fabric-orderer'], null, true);
+		const peers = await PeerRestApi.getPeersWithCerts();
+		let channelData = null;
+		let errors = [];
+		if (!channel_id) {
+			throw new Error('unable to get channel details - incorrect usage, channel_id is missing');
+		}
+
+		await async.eachLimit(
+			peers,
+			6,
+			// asyncify to get around babel converting these functions to non-async: https://caolan.github.io/async/v2/docs.html#asyncify
+			async.asyncify(async peer => {
+				const opts = {
+					msp_id: peer.msp_id,
+					client_cert_b64pem: peer.cert,
+					client_prv_key_b64pem: peer.private_key,
+					host: peer.url2use,
+					channel_id: channel_id
+				};
+				const certAvailable = Helper.isCertAvailable(opts);
+				if (!certAvailable) {
+					let peerError = {};
+					peerError.id = peer.id;
+					peerError.name = peer.name;
+					peerError.message_key = 'missing_cert';
+					errors.push(peerError);
+					return;
+				}
+
+				let channel_resp = null;
+				let config_envelop = null;
+				try {
+					const getChannelConfigFromPeer = promisify(window.stitch.getChannelConfigFromPeer);
+					channel_resp = await getChannelConfigFromPeer(opts);
+				} catch (error) {
+					Log.error(error);
+					Log.error('unable to get config block from peer, will try another');
+					errors.push(error);
+				}
+
+				if (channel_resp) {
+					config_envelop = channel_resp?.data?.block?.data?.data_list[0].envelope?.payload?.data;
+					const l_orderers = this.getOrdererAddresses(config_envelop?.config);
+
+					// init channel data
+					if (!channelData || !Array.isArray(channelData.peers)) {
+						channelData = {
+							id: channel_id,
+							name: channel_id,
+							peers: [peer],
+							orderers: [],					// populated later
+							ordererAddresses: l_orderers,
+						};
+					} else {
+						// already got channel info, add this peer to the list
+						channelData.peers.push(peer);
+					}
+				}
+
+				// now add details for each orderer in the config block to our response
+				if (channelData && Array.isArray(channelData.ordererAddresses)) {
+					for (let i in channelData.ordererAddresses) {
+						const orderer_url = channelData.ordererAddresses[i];
+						for (let i in ordering_nodes) {
+							const orderer = ordering_nodes[i];
+
+							// add orderer if the address in the config block matches the backend_addr console has in our database
+							if (_.toLower(orderer.backend_addr) === _.toLower(orderer_url)) {
+
+								// if it doesn't already exist, add it
+								if (!channelData.orderers.find(x => x.id === orderer.id)) {
+									channelData.orderers.push(orderer);
+								}
+							}
+						}
+					}
+				}
+
+				// if we have data, figure out cert warning stuff
+				if (channelData && config_envelop) {
+					let cert_warning = false;
+					const endorsement_policies = {};
+					const app_groups = _.get(config_envelop.config, 'channel_group.groups_map.Application.groups_map');
+					const orderer_groups = _.get(config_envelop.config, 'channel_group.groups_map.Orderer.groups_map');
+					const application_capability = _.get(
+						config_envelop.config,
+						'channel_group.groups_map.Application.values_map.Capabilities.value.capabilities_map'
+					);
+					for (let app in app_groups) {
+						const admins = app_groups[app].values_map.MSP.value.admins_list;
+						const node_ou = _.get(app_groups[app], 'values_map.MSP.value.fabric_node_ous.enable', false);
+						if (Helper.getLongestExpiry(admins) < constants.CERTIFICATE_WARNING_DAYS && !node_ou) {
+							cert_warning = true;
+						}
+						endorsement_policies[app] = !!_.get(app_groups[app], 'policies_map.Endorsement');
+					}
+					for (let app in orderer_groups) {
+						const admins = orderer_groups[app].values_map.MSP.value.admins_list;
+						const node_ou = _.get(orderer_groups[app], 'values_map.MSP.value.fabric_node_ous.enable', false);
+						if (Helper.getLongestExpiry(admins) < constants.CERTIFICATE_WARNING_DAYS && !node_ou) {
+							cert_warning = true;
+						}
+					}
+					channelData.capability = {
+						application: Helper.getCapabilityHighestVersion(application_capability),
+					};
+					channelData.cert_warning = cert_warning;
+					channelData.endorsement_policies = endorsement_policies;
+				}
+			})
+		);
+
+		Log.info('getChannelDetails: finished on ' + channel_id);
+		if (channelData) {
+			return channelData;
+		} else {
+			throw String('unable to get details on channel');
+		}
+	}
+
 	/*
 			const options = {
 				channel_id: options.channel_id,
@@ -444,6 +567,7 @@ class ChannelApi {
 					EventsRestApi.sendCreateChannelEvent(options.channel_id, c_opts.msp_id);
 				} catch (error) {
 					Log.error(error);
+					EventsRestApi.sendCreateChannelEvent(options.channel_id, c_opts.msp_id, 'error');
 					throw error;
 				}
 				Log.info('new channel signature resp:', resp3);
@@ -709,7 +833,12 @@ class ChannelApi {
 		consenters.forEach(consenter => {
 			ordererAddresses.push(consenter.host + ':' + consenter.port);
 		});
-		node.values.OrdererAddresses.value.addresses = ordererAddresses;
+
+		// the "addresses" field is legacy for fabric, if its not already populated, don't bother updating it
+		// fabric will find orderer addresses in the "consenters" field
+		if (node.values.OrdererAddresses.value && node.values.OrdererAddresses.value.addresses) {
+			node.values.OrdererAddresses.value.addresses = ordererAddresses;
+		}
 	}
 
 	static getNodeOUIdentifier(certificate) {
@@ -1307,7 +1436,7 @@ class ChannelApi {
 		const port = parsedURL.port;
 
 		let consenterNodes = updated_json.channel_group.groups.Orderer.values.ConsensusType.value.metadata.consenters;
-		let ordererAddresses = updated_json.channel_group.values.OrdererAddresses.value.addresses;
+		let ordererAddresses = _.get(updated_json, 'channel_group.values.OrdererAddresses.value.addresses', []);
 
 		if (opts.mode === 'delete') {
 			ChannelApi.deleteConsenters(consenterNodes, ordererAddresses, host, port);
@@ -1416,6 +1545,7 @@ class ChannelApi {
 			// Genetic API to update a channel
 			const options = {
 				configtxlator: 'url',
+				orderer_host: '<the orderer node url to use for this channel update>",
 				channel_id: options.channel_id,
 				org_msp_id: options.org_msp_id,
 				original_json: {},
@@ -1510,10 +1640,8 @@ class ChannelApi {
 					let orderers = null;
 					if (options.cluster_id) {
 						orderers = await OrdererRestApi.getClusterDetails(options.cluster_id);
-					} else {
-						orderers = await OrdererRestApi.getOrdererDetails(options.currentOrdererId || options.ordererId);
+						orderers = orderers.raft ? orderers.raft : null;
 					}
-					orderers = orderers.raft ? orderers.raft : [orderers];
 					const resp3 = await StitchApi.submitWithRetry(c_opts, orderers);
 					// send async event... don't wait
 					EventsRestApi.sendUpdateChannelEvent(options.channel_id, c_opts.msp_id);
@@ -1521,6 +1649,7 @@ class ChannelApi {
 					return resp3.data;
 				} catch (error) {
 					Log.error(error);
+					EventsRestApi.sendUpdateChannelEvent(options.channel_id, c_opts.msp_id, 'error');
 					throw error;
 				}
 			}
@@ -1768,7 +1897,7 @@ class ChannelApi {
 
 	/*
 	opts = {
-			orderer_host: opts.orderer_url,
+			orderer_hosts: [orderer_url],
 			channel_id: opts.channel_id,
 			chaincode_id: opts.chaincode_id,
 			chaincode_version: opts.chaincode_version,
@@ -1785,7 +1914,8 @@ class ChannelApi {
 			client_cert_b64pem: peer.cert,
 			client_prv_key_b64pem: peer.private_key,
 			host: peer.url2use,
-			orderer_host: opts.orderer_url,
+			orderer_host: null,							// populated later
+			_orderer_hosts: opts.orderer_hosts, 		// not used, but useful to see in logs
 			channel_id: opts.channel_id,
 			chaincode_id: opts.chaincode_id,
 			chaincode_version: opts.chaincode_version,
@@ -1798,24 +1928,23 @@ class ChannelApi {
 		if (opts.chaincode_function) {
 			instantiate_opts.chaincode_function = opts.chaincode_function;
 		}
+
 		if (opts.proposal_type === 'deploy') {
 			Log.debug('Sending request to instantiate chaincode', instantiate_opts);
-			try {
-				const instantiateChaincode = promisify(window.stitch.instantiateChaincode);
-				return await instantiateChaincode(instantiate_opts);
-			} catch (error) {
-				Log.error(error);
-				throw error;
-			}
+			return await StitchApi.retryOrdererGeneric({
+				orderer_urls: opts.orderer_hosts,
+				stitchFunction: window.stitch.instantiateChaincode,
+				stitchArgument: instantiate_opts,
+				logName: 'instantiateChaincode',
+			});
 		} else {
 			Log.debug('Sending request to upgrade chaincode', instantiate_opts);
-			try {
-				const upgradeChaincode = promisify(window.stitch.upgradeChaincode);
-				return await upgradeChaincode(instantiate_opts);
-			} catch (error) {
-				Log.error(error);
-				throw error;
-			}
+			return await StitchApi.retryOrdererGeneric({
+				orderer_urls: opts.orderer_hosts,
+				stitchFunction: window.stitch.upgradeChaincode,
+				stitchArgument: instantiate_opts,
+				logName: 'upgradeChaincode',
+			});
 		}
 	}
 
@@ -1962,13 +2091,13 @@ class ChannelApi {
 		ChannelApi._config_json2binary(opts.original_json, opts.configtxlator_url, (err1, original_proto) => {
 			if (err1 || !original_proto) {
 				Log.error(err1);
-				cb(err1, null);
+				return cb(err1, null);
 			} else {
 				Log.debug('created bin from original config json');
 				ChannelApi._config_json2binary(opts.updated_json, opts.configtxlator_url, (err2, updated_proto) => {
 					if (err2 || !updated_proto) {
 						Log.error(err2);
-						cb(err2, null);
+						return cb(err2, null);
 					} else {
 						Log.debug('created bin from updated config json');
 						let formData = new FormData();
@@ -1984,27 +2113,27 @@ class ChannelApi {
 							redirect: 'follow',
 							referrer: 'no-referrer',
 							encoding: null,
-						})
-							.then(res => res.blob())
-							.then(response => {
-								if (response.type === 'text/plain') {
-									//error response
-									const reader = new FileReader();
-									reader.addEventListener('loadend', e => {
-										const error_txt = e.srcElement.result;
-										cb(error_txt, null);
-									});
-									reader.readAsText(response);
-								} else {
-									const reader = new FileReader();
-									reader.addEventListener('loadend', e => {
-										const array = e.srcElement.result;
-										cb(null, new Uint8Array(array));
-									});
-									reader.readAsArrayBuffer(response);
-								}
-							})
-							.catch(error => cb(error, null));
+						}).then(res => res.blob()).then(response => {
+
+							// error response
+							if (response.type && response.type.includes('text/plain')) {
+								response.text().then((error_msg) => {
+									return cb(error_msg, null);
+								});
+							}
+
+							// good response
+							else {
+								const reader = new FileReader();
+								reader.addEventListener('loadend', e => {
+									const array = e.srcElement.result;
+									return cb(null, new Uint8Array(array));
+								});
+								reader.readAsArrayBuffer(response);
+							}
+						}).catch(error => {
+							return cb(error, null);
+						});
 					}
 				});
 			}
@@ -2093,7 +2222,7 @@ class ChannelApi {
 	}
 
 	static async createOrApproveChaincodeProposal(opts) {
-		const channel = await ChannelApi.getChannel(opts.channel_id);
+		const channel = await ChannelApi.getChannelDetails(opts.channel_id);
 		let orderer = null;
 		for (let o = 0; o < channel.orderers.length && !orderer; o++) {
 			if (channel.orderers[o].msp_id === opts.msp_id) {
@@ -2103,6 +2232,15 @@ class ChannelApi {
 		if (!orderer) {
 			orderer = channel.orderers[0];
 		}
+
+		// now find all consenting orderers on the channel and use them for retries
+		let validOrdererUrls = [];
+		if (channel && Array.isArray(channel.orderers)) {
+			validOrdererUrls = channel.orderers.map(x => {
+				return x.url2use;							// grab these urls
+			});
+		}
+
 		if (!channel.endorsement_policies[opts.msp_id]) {
 			await ChannelApi.addOrgEndorsementPolicy({
 				...opts,
@@ -2116,12 +2254,13 @@ class ChannelApi {
 		} else {
 			chaincode_sequence = await ChannelApi.getNextAvailableChaincodeSequence(opts.channel_id, opts.id);
 		}
+
 		let approve_opts = {
 			msp_id: opts.msp_id,
 			client_cert_b64pem: opts.cert,
 			client_prv_key_b64pem: opts.private_key,
 			host: opts.selected_peers[0].url2use,
-			orderer_host: orderer.url2use,
+			orderer_host: null, 				// gets set later
 			channel_id: opts.channel_id,
 			chaincode_sequence: chaincode_sequence.toString(),
 			chaincode_id: opts.id,
@@ -2137,8 +2276,14 @@ class ChannelApi {
 		if (opts.private_data_json) {
 			approve_opts.collections_obj = Helper.convertCollectionToSnake(opts.private_data_json);
 		}
+
 		try {
-			const def = await StitchApi.lc_approveChaincodeDefinition(approve_opts);
+			const def = await StitchApi.retryOrdererGeneric({
+				orderer_urls: validOrdererUrls,
+				stitchFunction: window.stitch.lc_approveChaincodeDefinition,
+				stitchArgument: approve_opts,
+				logName: 'lc_approveChaincodeDefinition',
+			});
 			if (def.error) {
 				Log.error(def);
 				//throw Error(def);
@@ -2149,6 +2294,7 @@ class ChannelApi {
 				throw error;
 			}
 		}
+
 		if (opts.tx_id) {
 			await SignatureRestApi.deleteRequest({
 				tx_id: opts.tx_id,

@@ -28,8 +28,8 @@ import (
 	"github.com/IBM-Blockchain/fabric-deployer/config"
 	"github.com/IBM-Blockchain/fabric-deployer/deployer/components/ca/api"
 	"github.com/IBM-Blockchain/fabric-deployer/deployer/util"
-	ibpca "github.com/IBM-Blockchain/fabric-operator/api/ca/v1"
 	current "github.com/IBM-Blockchain/fabric-operator/api/v1beta1"
+	ibpca "github.com/IBM-Blockchain/fabric-operator/pkg/apis/ca/v1"
 
 	"go.uber.org/zap"
 
@@ -66,6 +66,7 @@ type Kube interface {
 	GetConfigMap(namespace, name string) (*corev1.ConfigMap, error)
 	GetPort(namespace, name string) (int32, error)
 	GetPorts(namespace, name string) ([]corev1.ServicePort, error)
+	ClusterType(namespace string) string
 }
 
 //go:generate counterfeiter -o mocks/ibp_client.go -fake-name IBPOperatorClient . IBPOperatorClient
@@ -236,7 +237,7 @@ func (ca *CA) Images(version string) *current.CAImages {
 	images.HSMImage = caVersionedImages.HSMImage
 	images.EnrollerImage = caVersionedImages.EnrollerImage
 
-	if ca.Config.UseTags != nil && *ca.Config.UseTags {
+	if ca.Config.UseTags == nil || *ca.Config.UseTags == true {
 		// Set the tags
 		images.CAInitTag = caVersionedImages.CAInitTag
 		images.CATag = caVersionedImages.CATag

@@ -16,11 +16,10 @@
 import _ from 'lodash';
 import PropTypes from 'prop-types';
 import React, { Component } from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import { bindActionCreators } from 'redux';
 import './app.scss';
-import AuthSetup from './components/AuthSetup/AuthSetup';
 import LoadingWithContent from './components/LoadingWithContent/LoadingWithContent';
 import Logger from './components/Log/Logger';
 import Login from './components/Login/Login';
@@ -34,20 +33,18 @@ import StitchApi from './rest/StitchApi';
 import UserSettingsRestApi from './rest/UserSettingsRestApi';
 import ActionsHelper from './utils/actionsHelper';
 import Helper from './utils/helper';
-import localization from './utils/localization';
+// import localization from './utils/localization';
 import NodeStatus from './utils/status';
-import { setupMedallia } from './utils/medallia';
 
 const SCOPE = 'app';
 const Log = new Logger('App');
 Log.setLogLevel('warn');
 
 class App extends Component {
-	disableAuth = false;
 	cName = 'App';
 	constructor(props) {
 		super(props);
-		localization.init(props);
+		// localization.init(props);
 
 		this.state = {
 			authScheme: null,
@@ -57,10 +54,14 @@ class App extends Component {
 	async componentDidMount() {
 		NodeStatus.initialize(this.props.dispatch);
 
-		let userInfo;
+		this.initializeAppData();
+	}
+
+	async initializeAppData() {
 		try {
-			userInfo = await this.getUserInfo();
-			await this.isAuthConfigured();
+			const userInfo = await this.getUserInfo();
+			this.props.updateState('userInfo', userInfo);
+			await this.getAuthData();
 		} catch (error) {
 			Log.error(`Failed to get user info: ${error}`);
 		}
@@ -78,53 +79,9 @@ class App extends Component {
 		} catch (error) {
 			Log.error(`Failed to get signature collection requests: ${error}`);
 		}
-
-		if (settings.INFRASTRUCTURE === 'ibmcloud' && !_.get(settings, 'FEATURE_FLAGS.import_only_enabled')) {
-			try {
-				const isDev = settings.CRN.c_name === 'staging';
-				setupMedallia(userInfo, this.props.activeLanguage, isDev);
-			} catch (error) {
-				Log.error(`Failed to setup Medallia surveys: ${error}`);
-			}
-		}
 	}
 
-	initializeSegment(segment_key) {
-		const varScript = document.createElement('script');
-		varScript.innerHTML = `
-		var productTitle = "Blockchain Platform v2";
-
-		window._analytics = {
-			"segment_key" : '${segment_key}',
-			"coremetrics" : false,
-			"optimizely" : false,
-			"autoPageView" : false
-		};
-		`;
-		document.head.appendChild(varScript);
-
-		const script = document.createElement('script');
-		script.src = 'https://test.cloud.ibm.com/analytics/build/bluemix-analytics.min.js';
-		document.head.appendChild(script);
-
-		const analyticsFuncScript = document.createElement('script');
-		analyticsFuncScript.innerHTML = `
-			function trackEvent (event, obj) {
-				obj.productTitle = productTitle;
-				if (window.bluemixAnalytics) window.bluemixAnalytics.trackEvent(event, obj);
-				else console.log("bluemixAnalytics not available");
-			}
-
-			function pageEvent (event, pageName, obj) {
-				obj.productTitle = productTitle;
-				if (window.bluemixAnalytics) window.bluemixAnalytics.pageEvent( event, name = pageName ,  obj);
-				else console.log("bluemixAnalytics not available");
-			}
-		`;
-		document.head.appendChild(analyticsFuncScript);
-	}
-
-	async isAuthConfigured() {
+	async getAuthData() {
 		let resp;
 		try {
 			resp = await ConfigureAuthApi.getAuthScheme();
@@ -137,12 +94,9 @@ class App extends Component {
 			});
 			return;
 		}
-		let l_authScheme = resp.auth_scheme;
+		let l_authScheme = resp ? resp.auth_scheme : '';
 		let isConfigured = true;
-		if (resp.auth_scheme === 'none') {
-			this.disableAuth = true;
-		}
-		if (l_authScheme === '' || (l_authScheme !== 'ibmid' && l_authScheme !== 'iam' && l_authScheme !== 'appid' && l_authScheme !== 'couchdb')) {
+		if (!l_authScheme || l_authScheme === 'initial') {
 			Log.info('No auth scheme configured yet, redirecting to configure auth page', l_authScheme);
 			isConfigured = false;
 		}
@@ -188,31 +142,29 @@ class App extends Component {
 		}
 		Log.setLogLevel(log_level);
 		Log.info('Current debug level: ' + Log.getLogLevel());
-		// Log.debug('Application settings: ', settings);
+		Log.debug('Received application settings. console type:', settings.CONSOLE_TYPE);
+		Log.debug('Received application settings. infrastructure/cluster type:', settings.INFRASTRUCTURE);
+		Log.debug('Received application settings. console build type:', settings.CONSOLE_BUILD_TYPE);
+
 		let crn = settings.CRN;
-		if (!crn.account_id) crn.account_id = 'n/a';
-		let bmix_url = '';
-		switch (crn.c_name) {
-			case 'staging':
-				bmix_url = 'https://test.cloud.ibm.com';
-				break;
-			case 'bluemix':
-				bmix_url = 'https://cloud.ibm.com';
-				break;
-			default:
-				break;
+		if (!crn.account_id) {
+			crn.account_id = 'n/a';
 		}
-		let docPrefix = 'https://www.ibm.com/docs/en/blockchain-platform/2.5.3';
-		if (settings.INFRASTRUCTURE === 'openshift') {
-			docPrefix = 'https://www.ibm.com/docs/en/hlf-support/1.0.0';
-		}
+		const docUrlMap = {
+			ibp: 'https://cloud.ibm.com/docs/blockchain',
+			support: 'https://www.ibm.com/docs/en/hlf-support/1.0.0',
+			software: 'https://www.ibm.com/docs/en/blockchain-platform/2.5.4',
+			hlfoc: 'https://hyperledger-fabric.readthedocs.io/en/release-2.5',
+		};
+		const docUrlRoot = settings.CONSOLE_TYPE && docUrlMap[settings.CONSOLE_TYPE] ? docUrlMap[settings.CONSOLE_TYPE] : docUrlMap.hlfoc;
+
 		const modifiedCrnString = settings.CRN_STRING && settings.CRN_STRING.indexOf('::') !== -1 && settings.CRN_STRING.slice(0, -1);
 		let features = {
 			feature_flags: settings.FEATURE_FLAGS,
 			CRN: crn,
 			crn_string: modifiedCrnString,
-			bmixUrl: bmix_url,
-			docPrefix: docPrefix,
+			bmixUrl: 'https://cloud.ibm.com', // this link is only used to show the nicer API ui, which is relevant to all console builds, (except the auth section)
+			docPrefix: docUrlRoot,
 			cluster_data: settings.CLUSTER_DATA,
 			host_url: settings.HOST_URL,
 			version: settings.VERSION,
@@ -221,6 +173,7 @@ class App extends Component {
 			platform: settings.INFRASTRUCTURE,
 			default_consortium: settings.DEFAULT_CONSORTIUM,
 			hsm: settings.HSM,
+			console_type: settings.CONSOLE_TYPE,
 		};
 		this.props.updateState('settings', features);
 		const client_timeouts = _.get(settings, 'TIMEOUTS.CLIENT');
@@ -240,7 +193,7 @@ class App extends Component {
 			let serviceInfo = null;
 			try {
 				serviceInfo = await NodeRestApi.getServiceInstanceInfo();
-			} catch (err) {
+			} catch {
 				serviceInfo = { info: { isPaid: false } };
 			}
 			features.cluster_data.type = _.get(serviceInfo, 'info.isPaid') ? 'paid' : 'free';
@@ -256,18 +209,17 @@ class App extends Component {
 
 	async getUserInfo() {
 		const userInfo = await UserSettingsRestApi.getUserInfo();
-		this.props.updateState('userInfo', userInfo);
 		return userInfo;
 	}
 
 	// setup the loglevel-plugin-remote (storing client side logs on the server)
 	setupRemoteLogging() {
 		const remote_logging_options = {
-			url: '/api/v1/logs', // http url to send logs, relative route okay
+			url: '/api/v3/logs', // http url to send logs, relative route okay
 			method: 'POST', // http method to send logs
 			headers: {}, // http headers to send w/logs
-			timeout: 10000, // http req timeout, [ms]
-			interval: 5000, // interval to post logs, [ms]
+			timeout: 5000, // http req timeout, [ms]
+			interval: 30000, // interval to post logs, [ms]
 			level: 'trace', // logging level and below to send
 			backoff: {
 				// on req failure try again in a bit
@@ -300,13 +252,13 @@ class App extends Component {
 					pad(date.getUTCMilliseconds(), 3)
 				);
 			},
-			format: log => {
+			format: (log) => {
 				// create a log format similar to athena
 				function encodeNewLines(text) {
 					try {
 						const temp = JSON.stringify(text).replace(/\\"/g, '"');
 						return temp.substring(1, 1) + temp.substring(1, temp.length - 1);
-					} catch (e) {
+					} catch {
 						return text;
 					}
 				}
@@ -317,7 +269,7 @@ class App extends Component {
 		try {
 			window.remote.apply(window.log, remote_logging_options);
 			window.log.setLevel('debug');
-		} catch (e) {
+		} catch {
 			// might already be applied
 		}
 
@@ -332,74 +284,64 @@ class App extends Component {
 	}
 
 	render() {
-		const translate = this.props.translate;
-		if (this.disableAuth) {
-			Log.info('Auth is disabled!');
-		}
-
-		if (this.state.authScheme === null || this.props.userInfo === null) {
+		const translate = this.props.t;
+		if (!this.state.authScheme || !this.props.userInfo) {
 			return (
-				<LoadingWithContent withOverlay
-					description={translate('loading')}
-				>
+				<LoadingWithContent withOverlay description={translate('loading')}>
 					<h3>{translate('loading')}</h3>
 				</LoadingWithContent>
 			);
-		} else if (!this.disableAuth) {
-			if (!this.state.authScheme.isAuthConfigured) return <AuthSetup />;
-			else {
-				let admin_list = this.state.authScheme.admin_list.map(x => (x.email ? x.email.toLowerCase() : x.toLowerCase()));
-				let access_list = this.state.authScheme.access_list
-					? this.state.authScheme.access_list.map(x => (x.email ? x.email.toLowerCase() : x.toLowerCase()))
-					: [];
-				const { email } = this.props.userInfo.loggedInAs;
+		} else {
+			Log.debug('Current auth scheme:', this.state.authScheme.type);
 
-				if (
-					(this.props.userInfo.logged &&
-						(this.state.authScheme.type === 'ibmid' || this.state.authScheme.type === 'iam') &&
-						!ActionsHelper.canViewOpTools(this.props.userInfo)) ||
-					(this.props.userInfo.logged &&
-						this.state.authScheme.type === 'appid' &&
-						!(admin_list.includes(email.toLowerCase()) || access_list.includes(email.toLowerCase())))
-				)
+			// if user is not logged in at all...
+			if (!this.props.userInfo || !this.props.userInfo.logged) {
+				// if using local username/password, send user to our login prompt
+				if (this.state.authScheme.type === 'couchdb') {
 					return (
-						<RequestAccess adminContact={this.state.authScheme.admin_contact_email}
-							userInfo={this.props.userInfo}
-							host_url={this.state.authScheme.host_url}
+						<Login
+							onLogin={() => {
+								this.initializeAppData();
+							}}
 						/>
 					);
+				}
+
+				// if using sso, send user to sso's login prompt
+				else {
+					window.location.href = '/auth/login';
+					return (
+						<LoadingWithContent withOverlay description={translate('redirecting_login')}>
+							<h3>{translate('redirecting_login')}</h3>
+						</LoadingWithContent>
+					);
+				}
 			}
-		}
 
-		Log.debug('Current auth scheme and user info:', this.state.authScheme.type, this.props.userInfo);
-		if (this.state.authScheme.type === 'couchdb' && this.props.userInfo && !this.props.userInfo.logged) {
-			return <Login hostUrl={this.state.authScheme.host_url} />;
-		}
+			// if user is logged in
+			else {
+				// if user is logged in but has no access
+				if (!ActionsHelper.canViewOpTools(this.props.userInfo)) {
+					return (
+						<RequestAccess
+							adminContact={this.state.authScheme.admin_contact_email}
+							userInfo={this.props.userInfo}
+							host_url={this.state.authScheme.host_url}
+							auth_scheme={this.state.authScheme.type}
+						/>
+					);
+				}
 
-		if (this.state.authScheme.type === 'couchdb' && this.props.userInfo && this.props.userInfo.logged && this.props.userInfo.password_type === 'default') {
-			return <Login hostUrl={this.state.authScheme.host_url}
-				changePassword={true}
-			/>;
-		}
+				// if user is logged in but is using the default password, send user to change pass prompt
+				if (this.state.authScheme.type === 'couchdb' && this.props.userInfo && this.props.userInfo.logged && this.props.userInfo.password_type === 'default') {
+					return <Login hostUrl={this.state.authScheme.host_url} changePassword={true} />;
+				}
 
-		if (this.props.userInfo && !this.props.userInfo.logged && !this.disableAuth) {
-			window.location.href = `${this.state.authScheme.host_url}/auth/login`;
-		}
-
-		if ((this.props && this.props.userInfo && this.props.userInfo.logged) || this.disableAuth) {
-			Log.info('Starting application!');
-			this.setupRemoteLogging(); // setup the remote logging after the user has logged in to avoid hitting api lockout
-			return <Main userInfo={this.props.userInfo}
-				host_url={this.state.authScheme.host_url}
-			/>;
-		} else {
-			return (
-				<LoadingWithContent withOverlay
-					description={translate('redirecting_login')}
-				>
-					<h3>{translate('redirecting_login')}</h3>
-				</LoadingWithContent>
-			);
+				// if user is logged in and can view the app, render the the app
+				Log.info('Starting application!');
+				this.setupRemoteLogging(); // setup the remote logging after the user has logged in to avoid hitting api lockout
+				return <Main userInfo={this.props.userInfo} host_url={this.state.authScheme.host_url} />;
+			}
 		}
 	}
 }
@@ -407,7 +349,7 @@ class App extends Component {
 const dataProps = {
 	updateState: PropTypes.func,
 	userInfo: PropTypes.object,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 App.propTypes = {
@@ -415,15 +357,15 @@ App.propTypes = {
 };
 
 export default connect(
-	state => {
+	(state) => {
 		let newProps = Helper.mapStateToProps(state[SCOPE], dataProps);
 		newProps['userInfo'] = state['userInfo'] ? state['userInfo'] : null;
 		return newProps;
 	},
-	dispatch => {
+	(dispatch) => {
 		return {
 			dispatch,
 			...bindActionCreators({ updateState }, dispatch),
 		};
 	}
-)(withLocalize(App));
+)(withTranslation()(App));

@@ -200,8 +200,12 @@ module.exports = function (logger, t) {
 					return date.getUTCFullYear();
 				case 'M':								//Month 0 padded
 					return pad(date.getUTCMonth() + 1, 2);
+				case 'n':								//Month not padded
+					return date.getUTCMonth() + 1;
 				case 'd':								//Date 0 padded
 					return pad(date.getUTCDate(), 2);
+				case 'D':								//Date not padded
+					return date.getUTCDate();
 				case 'H':								//24 Hour 0 padded
 					return pad(date.getUTCHours(), 2);
 				case 'I':								//12 Hour 0 padded
@@ -209,6 +213,11 @@ module.exports = function (logger, t) {
 					if (tmp === 0) { tmp = 12; }		//00:00 should be seen as 12:00am
 					else if (tmp > 12) { tmp -= 12; }
 					return pad(tmp, 2);
+				case 'i':								//12 Hour not padded
+					tmp = date.getUTCHours();
+					if (tmp === 0) { tmp = 12; }		//00:00 should be seen as 12:00am
+					else if (tmp > 12) { tmp -= 12; }
+					return tmp;
 				case 'p':								//am / pm
 					tmp = date.getUTCHours();
 					if (tmp >= 12) { return 'pm'; }
@@ -616,7 +625,7 @@ module.exports = function (logger, t) {
 					return email[0] + asterisks + email[pos - 1] + email.substring(pos);
 				}
 			} else {
-				if (email.length > 8) {									// api keys get limited to 8 and fixed length
+				if (email[0] === 'k' && email.length === 16) {			// api keys get limited in length
 					return email.substring(0, 8) + '***';
 				} else {
 					return email;
@@ -647,59 +656,35 @@ module.exports = function (logger, t) {
 	// return the hostname from a url
 	// ------------------------------------------
 	exports.get_host = function (url) {
-		const parts = exports.break_up_url(url);
-		if (!parts) {
-			return null;					// error is logged elsewhere
-		} else {
-			return parts.hostname;
-		}
+		return t.root_misc.get_host(url);
 	};
 
 	// ------------------------------------------
 	// break up url in proto, basic auth, hostname, port, etc
 	// ------------------------------------------
-	exports.break_up_url = function (url) {
-		if (url && typeof url === 'string' && !url.includes('://')) {			// if no protocol, assume https
-			url = 'https://' + url;												// append https so we can parse it
-		}
-
-		const parts = typeof url === 'string' ? t.url.parse(url) : null;
-		if (!parts || !parts.hostname) {
-			logger.error('cannot parse url:', encodeURI(url));
-			return null;
-		} else {
-			const protocol = parts.protocol ? parts.protocol : 'https:';		// default protocol is https
-			if (parts.port === null) {
-				parts.port = protocol === 'https:' ? '443' : '80';				// match default ports to protocol
-			}
-			parts.auth_str = parts.auth ? parts.auth + '@' : '';				// defaults to no auth
-
-			return parts;
-		}
+	exports.break_up_url = function (url, opts) {
+		return t.root_misc.break_up_url(url, opts);
 	};
 
 	// ------------------------------------------
 	// parse url return proto + :basic_auth? + hostname + port
 	// ------------------------------------------
-	exports.format_url = function (url) {
-		const parts = exports.break_up_url(url);
-		if (!parts || !parts.hostname) {
-			return null;					// error is logged elsewhere
-		} else {
-			return parts.protocol + '//' + parts.auth_str + parts.hostname + ':' + parts.port;
-		}
+	exports.format_url = function (url, opts) {
+		return t.root_misc.format_url(url, opts);
 	};
 
 	// ------------------------------------------
 	// redact basic auth in url
 	// ------------------------------------------
 	exports.redact_basic_auth = function (url) {
-		const parts = exports.break_up_url(url);
-		if (!parts || !parts.hostname) {
-			return null;				// error is logged elsewhere
-		} else {
-			return parts.protocol + '//' + parts.hostname + ':' + parts.port;
-		}
+		return t.root_misc.redact_basic_auth(url);
+	};
+
+	// ------------------------------------------
+	// return hostname + port from url (no protocol, no basic auth)
+	// ------------------------------------------
+	exports.fmt_url = function (url) {
+		return t.root_misc.fmt_url(url);
 	};
 
 	// ------------------------------------------
@@ -833,8 +818,20 @@ module.exports = function (logger, t) {
 				const parts = path.split('.');
 
 				if (parts && parts.length >= 0) {
-					for (let i = 1; i < parts.length; i++) {	// skip the first key (ie start at 1)
-						prev = prev[parts[i]];
+					for (let i = 1; i < parts.length; i++) {		// skip the first key (ie start at 1)
+
+						// if this key has an array on it, such as "field[3]", index into the array
+						const matches = (typeof parts[i] === 'string') ? parts[i].match(/(\w+)\[(\d+)\]/) : null;
+						if (matches && matches[1] && matches[2]) {	// if its an array it'll have 2 matches
+							const key = matches[1];
+							const index = Number(matches[2]);
+							prev = prev[key][index];				// index into array
+						}
+
+						// else key is for a simple object, index into the child field
+						else {
+							prev = prev[parts[i]];
+						}
 					}
 					if (typeof prev !== 'undefined') {
 						return prev;							// found it, return
@@ -886,6 +883,14 @@ module.exports = function (logger, t) {
 		}
 	};
 
+	// ---------------------------------------------
+	// node 18 will translate "localhost" to ""::1" which is a IPv6 format, if the destination is not listening on IPv6 the connection will fail!
+	// we need to switch "localhost" to the ip version which will keep the connection as IPv4.
+	// ---------------------------------------------
+	exports.fix_localhost = function (url_str) {
+		return t.root_misc.fix_localhost(url_str);
+	};
+
 	// ------------------------------------------------------------
 	// wrapper on request module - does retries on some error codes
 	// -------------------------------------------------------------
@@ -924,7 +929,7 @@ module.exports = function (logger, t) {
 		}
 
 	*/
-	exports.retry_req = (options, cb) => {
+	exports.retry_req = async (options, cb) => {
 		options._name = options._name || 'request';										// name for request type, for debugging
 		options._max_attempts = options._max_attempts || 3;								// only try so many times
 		options._retry_codes = options._retry_codes || {								// list of codes we will retry
@@ -936,12 +941,11 @@ module.exports = function (logger, t) {
 		if (!options._attempt) { options._attempt = 0; }								// keep track of attempts
 		options._attempt++;
 
-		if (options.baseUrl) { options.baseUrl = encodeURI(options.baseUrl); }			// pen test require the encodeURI usage here
+		if (options.baseUrl) { options.baseUrl = encodeURI(t.misc.fix_localhost(options.baseUrl)); }	// pen test require the encodeURI usage here
 		if (options.url) { options.url = encodeURI(options.url); }						// pen test require the encodeURI usage here
 		if (options.uri) { options.url = encodeURI(options.uri); }
 
-		//options._max_attempts = 1;		// dsh todo
-		//options.timeout = 2000;			// dsh todo
+		options.timeout = !isNaN(options.timeout) ? Number(options.timeout) : 1.9 * 60 * 1000;
 
 		// --- Send the Request --- //
 		const redacted_url = exports.redact_basic_auth(options.baseUrl ? (options.baseUrl + options.url) : options.url);
@@ -951,13 +955,13 @@ module.exports = function (logger, t) {
 		}
 		t.request(options, (req_e, resp) => {
 			if (req_e) {																// detect timeout request error
-				logger.error('[' + options._name + ' ' + options._tx_id + '] unable to reach destination. error:', req_e);
+				logger.error('[' + options._name + ' ' + options._tx_id + '] unable to reach destination. error:', req_e.toString());
 				resp = resp ? resp : {};												// init if not already present
 				resp.statusCode = resp.statusCode ? resp.statusCode : 500;				// init code if empty
 				resp.body = resp.body ? resp.body : req_e;								// copy requests error to resp if its empty
 				if (req_e.toString().indexOf('TIMEDOUT') >= 0) {
 					logger.error('[' + options._name + ' ' + options._tx_id + '] timeout exceeded:', options.timeout);
-					resp.statusCode = 408;
+					resp.statusCode = 504;
 				}
 			}
 
@@ -973,7 +977,7 @@ module.exports = function (logger, t) {
 						let delay_ms = calc_delay(options, resp);
 						logger.warn('[' + options._name + ' ' + options._tx_id + '] ' + code_desc + ', trying again in a bit:', exports.friendly_ms(delay_ms));
 						return setTimeout(() => {
-							options.timeout = calc_retry_timeout(options, resp);
+							//options.timeout = calc_retry_timeout(options, resp);
 							logger.warn('[' + options._name + ' ' + options._tx_id + '] sending retry for prev ' + code + ' error.', options._attempt);
 							return exports.retry_req(options, cb);
 						}, delay_ms);
@@ -1004,7 +1008,7 @@ module.exports = function (logger, t) {
 		}
 
 		// calculate the timeout for the next request (in ms) - (_attempt is the number of the attempt that failed)
-		function calc_retry_timeout(options, resp) {
+		/*function calc_retry_timeout(options, resp) {
 			if (typeof options._calc_retry_timeout === 'function') {
 				const timeout = options._calc_retry_timeout(options, resp);				// if function is provided, call it
 				if (timeout && !isNaN(timeout)) {
@@ -1016,11 +1020,11 @@ module.exports = function (logger, t) {
 			if (!options.timeout || isNaN(options.timeout)) {
 				options.timeout = 30000;													// default
 			}
-			if (code === 408) {
+			if (code === 408 || code === 504) {
 				options.timeout = Number(options.timeout) + 10000 * (options._attempt + 1);	// increase each time
 			}
 			return options.timeout;
-		}
+		}*/
 	};
 
 	// -----------------------------------------------------
@@ -1231,7 +1235,7 @@ module.exports = function (logger, t) {
 	// make a string that is safe to log (str came from user input)
 	// -----------------------------------------------------
 	exports.safe_str = (input, unlimitedLength) => {
-		const regex_id = new RegExp(/[^a-zA-Z0-9-_*!@$%&()\s]/g);				// this might be overly restrictive but its a place to start
+		const regex_id = new RegExp(/[^a-zA-Z0-9-_*!@$%&()\s"'.:,]/g);			// this might be overly restrictive but its a place to start
 		try {
 			if (typeof input === 'string') {
 				if (unlimitedLength) {
@@ -1340,8 +1344,10 @@ module.exports = function (logger, t) {
 	// decide if version strings with wildcards match with the version - example: pattern="1.4.x", value="1.4.9" would return true
 	// -----------------------------------------------------
 	exports.version_matches_pattern = (pattern, value) => {
-		pattern = (typeof pattern === 'string') ? pattern : '';											// safer...
-		value = (typeof value === 'string') ? value : '';
+		pattern = (typeof pattern === 'number') ? pattern.toString() : pattern;							// safer...
+		value = (typeof value === 'number') ? value.toString() : value;
+		pattern = (typeof pattern === 'string') ? pattern.trim() : '';									// safer...
+		value = (typeof value === 'string') ? value.trim() : '';
 
 		pattern = (pattern[0].toLowerCase() === 'v') ? pattern.substring(1) : pattern;					// strip of leading V, like v1.4.9
 		value = (value[0].toLowerCase() === 'v') ? value.substring(1) : value;
@@ -1353,15 +1359,15 @@ module.exports = function (logger, t) {
 			return null;
 		}
 
-		// make them the same length, defaults to 0
-		for (; version_parts_pattern.length < version_parts_val.length;) { version_parts_pattern.push('0'); }
+		// make them the same length
+		for (; version_parts_pattern.length < version_parts_val.length;) { version_parts_pattern.push('x'); }
 		for (; version_parts_val.length < version_parts_pattern.length;) { version_parts_val.push('0'); }
 
 		// iter on each digit
 		for (let i in version_parts_pattern) {
-			if (version_parts_pattern[i] === 'x') {		// if we made it to the 'x' then its a match
+			if (version_parts_pattern[i] === 'x') {										// if we made it to the 'x' then its a match
 				return true;
-			} else if (version_parts_pattern[i] !== version_parts_val[i]) {	// if these digits don't match, the versions do not match
+			} else if (version_parts_pattern[i] !== version_parts_val[i]) {				// if these digits don't match, the versions do not match
 				return false;
 			} else {
 				// if these digits match, move to the next digit
@@ -1502,6 +1508,40 @@ module.exports = function (logger, t) {
 				return false;
 			}
 		}
+	};
+
+	// -----------------------------------------------------
+	// create safe string from keys of an object
+	// -----------------------------------------------------
+	exports.objKeysToString = (obj) => {
+		if (!obj) {
+			return '';
+		} else {
+			const safeKeys = Object.keys(obj).map(x => {
+				return exports.safe_str(x);
+			});
+			return '"' + safeKeys.join('", "') + '"';
+		}
+	};
+
+	// turn version into a 3 part version string
+	// 'V2_0' -> 'v2.0.0'
+	// '2.0.0' -> 'v2.0.0'
+	// 'V1_4_2' -> 'v1.4.2'
+	exports.prettyPrintVersion = (str) => {
+		if (typeof str === 'string') {
+			if (str === 'unknown') { return '-'; }
+			str = str.trim();
+			if (str[0].toUpperCase() === 'V') {
+				str = str.substring(1);			// cut off the 'V'
+			}
+			const parts = str.includes('_') ? str.split('_') : str.split('.');
+			while (parts.length < 3) {
+				parts.push('0');
+			}
+			return 'v' + parts.join('.');
+		}
+		return '-';
 	};
 
 	return exports;

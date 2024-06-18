@@ -93,19 +93,28 @@ module.exports = function (logger, ev, t) {
 	// Restart Athena
 	//--------------------------------------------------
 	app.post('/api/v[123]/restart', t.middleware.verify_restart_action_session, function (req, res) {
-		restart(req, res);
+		restart_via_pillow(req, res);
 	});
 	app.post('/ak/api/v[123]/restart', t.middleware.verify_restart_action_ak, function (req, res) {
-		restart(req, res);
+		restart_via_pillow(req, res);
+	});
+	app.get('/api/v[3]/restart/force', t.middleware.verify_restart_action_session, function (req, res) {
+		restart_via_fs(req, res);
 	});
 	app.post('/ak/api/v[123]/restart/force', t.middleware.verify_restart_action_ak, function (req, res) {
-		res.status(200).json({ message: 'you got it' });
-		t.ot_misc.restart_athena(t.middleware.getUuid(req));						// restart this instance right now, no db -> pillow talk
+		restart_via_fs(req, res);
+	});
+	app.get('/api/v[123]/restart/force/hard', t.middleware.verify_restart_action_session, function (req, res) {
+		restart_hard(req, res);
+	});
+	app.post('/ak/api/v[123]/restart/force/hard', t.middleware.verify_restart_action_ak, function (req, res) {
+		restart_hard(req, res);
 	});
 
-	function restart(req, res) {
+	// restart using pillow talk which in turn uses the file system watcher
+	// will restart ALL consoles
+	function restart_via_pillow(req, res) {
 		res.status(200).json({ message: 'restarting - give me 5-30 seconds' });		// respond first, else we will restart w/o responding
-
 		const msg = {
 			message_type: 'restart',
 			message: 'restarting application via restart api',
@@ -113,6 +122,28 @@ module.exports = function (logger, ev, t) {
 			uuid: t.middleware.getUuid(req),
 		};
 		t.pillow.broadcast(msg);
+	}
+
+	// restart via the file system watcher only
+	// only restarts this console (which is the process that got the http request)
+	function restart_via_fs(req, res) {
+		res.status(200).json({ message: 'you got it' });
+		logger.warn('[restart] restarting athena from a force restart api');
+		setTimeout(() => {
+			t.ot_misc.restart_athena(t.middleware.getUuid(req));				// restart this instance right now, no db -> pillow talk
+		}, 500);
+	}
+
+	// restart by killing self and letting k8s sch a new pod
+	// only restarts this console (which is the process that got the http request)
+	function restart_hard(req, res) {
+		res.status(200).json({ message: 'you got it, killing self :(' });
+		logger.silly('---------------------------- restart ----------------------------');
+		logger.info('Restarting Athena "' + process.env.ATHENA_ID + '" - restarting the hard way, see you next time');
+		logger.silly('---------------------------- restart ----------------------------');
+		setTimeout(() => {
+			process.exit();
+		}, 500);
 	}
 
 	//--------------------------------------------------
@@ -487,8 +518,21 @@ module.exports = function (logger, ev, t) {
 	//-----------------------------------------------------------------------------
 	// Record wallet(identities) export
 	//-----------------------------------------------------------------------------
-	app.post('/api/v[3]/exported/identities', t.middleware.verify_settings_action_session, (req, res) => {
+	app.post('/api/v[3]/exported/identities', t.middleware.verify_view_action_session, (req, res) => {
 		t.other_apis_lib.record_export(req, 'identities', (err, ret) => {
+			if (err) {
+				return res.status(t.ot_misc.get_code(err)).json(err);
+			} else {
+				return res.status(200).json(ret);
+			}
+		});
+	});
+
+	//-----------------------------------------------------------------------------
+	// Return the debug/support version summary
+	//-----------------------------------------------------------------------------
+	app.get('/api/v[3]/versions', t.middleware.verify_view_action_session, (req, res) => {
+		t.other_apis_lib.version_summary(req, (err, ret) => {
 			if (err) {
 				return res.status(t.ot_misc.get_code(err)).json(err);
 			} else {

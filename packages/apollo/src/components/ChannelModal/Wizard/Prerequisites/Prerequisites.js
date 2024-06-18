@@ -14,11 +14,11 @@
  * limitations under the License.
 */
 
-import { Checkbox } from 'carbon-components-react';
+import { Checkbox } from "@carbon/react";
 import _ from 'lodash';
 import PropTypes from 'prop-types';
 import React, { Component } from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import { updateState } from '../../../../redux/commonActions';
 import Helper from '../../../../utils/helper';
@@ -101,11 +101,14 @@ class Prerequisites extends Component {
 	};
 
 	render() {
-		const { advanced, translate } = this.props;
+		const { advanced, t: translate } = this.props;
 		return (
 			<div className="ibp-channel-prerequisites">
 				<p className="ibp-channel-section-title">{translate('prerequisites')}</p>
 				<TranslateLink text="prerequisites_para1"
+					className="ibp-channel-section-desc-with-link"
+				/>
+				<TranslateLink text="prerequisites_para1.5"
 					className="ibp-channel-section-desc-with-link"
 				/>
 				<p id="prerequisites_para2"
@@ -151,7 +154,7 @@ const dataProps = {
 Prerequisites.propTypes = {
 	...dataProps,
 	updateState: PropTypes.func,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default connect(
@@ -161,4 +164,4 @@ export default connect(
 	{
 		updateState,
 	}
-)(withLocalize(Prerequisites));
+)(withTranslation()(Prerequisites));

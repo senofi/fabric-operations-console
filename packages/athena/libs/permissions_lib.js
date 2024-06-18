@@ -45,7 +45,7 @@ module.exports = function (logger, ev, t) {
 	};
 
 	//--------------------------------------------------
-	// Adds users - this only works on software (saas uses IAM)
+	// Adds users - this only works on software/support (saas uses IAM)
 	//--------------------------------------------------
 	exports.add_users = (req, cb) => {
 
@@ -103,6 +103,17 @@ module.exports = function (logger, ev, t) {
 					logger.error('[permissions] cannot add these users. bad input:', input_errors);
 					cb({ statusCode: 400, msg: input_errors, }, null);
 				} else {
+					const usernames = Object.keys(req.body.users);
+					const censored = [];
+					for (let i in usernames) {
+						censored.push(t.misc.censorEmail(usernames[i]));
+					}
+
+					// build a notification doc
+					const notice = {
+						message: 'adding new user' + (usernames.length > 1 ? 's' : '') + ' ' + censored.join(', '),
+					};
+					t.notifications.procrastinate(req, notice);
 
 					// update the settings doc
 					const wr_opts = {
@@ -134,7 +145,60 @@ module.exports = function (logger, ev, t) {
 	};
 
 	//--------------------------------------------------
-	// Edit users - this only works on software (saas uses IAM)
+	// Register user - this only works on software/support (saas uses IAM)
+	//--------------------------------------------------
+	exports.register_user = (req, cb) => {
+
+		// get the Athena settings doc first
+		t.otcc.getDoc({ db_name: ev.DB_SYSTEM, _id: process.env.SETTINGS_DOC_ID, SKIP_CACHE: true }, (err, settings_doc) => {
+			if (err || !settings_doc) {
+				logger.error('could not get settings doc to add users', err);
+				return cb(err);
+			} else {
+				if (!settings_doc.access_list) {
+					settings_doc.access_list = {};							// init
+				}
+
+				let email = t.middleware.getEmail(req);
+				if (!email || typeof email !== 'string') {
+					return cb({ statusCode: 400, msg: 'a username was not found in session' }, null);
+				} else {
+					settings_doc.access_list[email.toLowerCase()] = {						// create the user object
+						created: Date.now(),
+						roles: [],
+						uuid: t.middleware.getUuid(req) || t.uuidv4()
+					};
+
+					// build a notification doc
+					const notice = {
+						message: 'registering new user ' + t.misc.censorEmail(email),
+					};
+					t.notifications.procrastinate(req, notice);
+
+					// update the settings doc
+					const wr_opts = {
+						db_name: ev.DB_SYSTEM,
+						doc: settings_doc
+					};
+					t.otcc.repeatWriteSafe(wr_opts, (doc) => {
+						settings_doc._rev = doc._rev;
+						return { doc: settings_doc };
+					}, (err_writeDoc) => {
+						if (err_writeDoc) {
+							logger.error('[permissions] cannot edit settings doc to register user:', err_writeDoc);
+							cb({ statusCode: 500, msg: 'could not update settings doc', details: err_writeDoc }, null);
+						} else {
+							logger.info('[permissions] register user - success');
+							return cb(null, { message: 'ok' });				// all good
+						}
+					});
+				}
+			}
+		});
+	};
+
+	//--------------------------------------------------
+	// Edit users - this only works on software/support (saas uses IAM)
 	//--------------------------------------------------
 	exports.edit_users = (req, cb) => {
 
@@ -166,7 +230,36 @@ module.exports = function (logger, ev, t) {
 					if (!email) {
 						input_errors.push('uuid does not exist: ' + encodeURI(uuid));
 					} else {
-						settings_doc.access_list[email].roles = lc_roles; 			// edit the user object
+						if (settings_doc.access_list[email].roles.includes('manager') && !lc_roles.includes('manager')) {
+							let admin_count = 0;
+							for (let id in settings_doc.access_list) {
+								let user = settings_doc.access_list[id];
+								if (user && user.roles && user.roles.includes('manager')) {
+									admin_count = admin_count + 1;
+								}
+							}
+							if (admin_count < 2) {
+								input_errors.push('[only manager] as you are the only manager for this console, you are not allowed to modify your roles');
+							}
+							else {
+								settings_doc.access_list[email].roles = lc_roles; 			// edit the user object
+
+								// build a notification doc
+								const notice = {
+									message: 'editing roles for user ' + t.misc.censorEmail(email) + ' - setting ' + lc_roles.join(', '),
+								};
+								t.notifications.procrastinate(req, notice);
+							}
+						}
+						else {
+							settings_doc.access_list[email].roles = lc_roles; 			// edit the user object
+
+							// build a notification doc
+							const notice = {
+								message: 'editing roles for user ' + t.misc.censorEmail(email) + ' - setting ' + lc_roles.join(', '),
+							};
+							t.notifications.procrastinate(req, notice);
+						}
 					}
 				}
 
@@ -190,11 +283,24 @@ module.exports = function (logger, ev, t) {
 						} else {
 							logger.info('[permissions] editing users - success');
 
+							for (let uuid in uuids) {
+								t.session_store._destroySessionByUuid(uuid);		// this is async, but we'll just run through them all w/o blocking
+							}
+
 							ev.update(null, err => {								// reload ev settings
 								if (err) {
 									logger.error('[permissions] error updating config settings', err);
 									return cb({ statusCode: 500, msg: 'could not update config settings' }, null);
 								} else {
+
+									// we need to flush the caches of other instances after a perm change
+									// this will inform other athena instances to get the new session/role information
+									const msg = {
+										message_type: 'flush_session_cache',
+										message: 'user role(s) were changed, clear session cache',
+									};
+									t.pillow.broadcast(msg);
+
 									cb(null, { message: 'ok', uuids: ret_uuids });			// all good
 								}
 							});
@@ -206,7 +312,7 @@ module.exports = function (logger, ev, t) {
 	};
 
 	//--------------------------------------------------
-	// Delete users - this only works on software (saas uses IAM)
+	// Delete users - this only works on software/support (saas uses IAM)
 	//--------------------------------------------------
 	exports.delete_users = (req, cb) => {
 
@@ -217,6 +323,7 @@ module.exports = function (logger, ev, t) {
 				return cb(err);
 			} else {
 				let input_errors = [];
+				const censored = [];
 				if (!settings_doc.access_list) {
 					settings_doc.access_list = {};									// init
 				}
@@ -236,13 +343,20 @@ module.exports = function (logger, ev, t) {
 						input_errors.push('cannot delete self: ' + encodeURI(uuid));
 					} else {
 						delete settings_doc.access_list[email];
+						censored.push(t.misc.censorEmail(email));
 					}
 				}
 
 				if (input_errors.length >= 1) {
 					logger.error('[permissions] unable to delete some users. errors:', input_errors);
-					cb({ statusCode: 400, msg: input_errors, }, null);
+					return cb({ statusCode: 400, msg: input_errors, }, null);
 				} else {
+
+					// build a notification doc
+					const notice = {
+						message: 'deleting user' + (uuids.length > 1 ? 's' : '') + ' ' + censored.join(', '),
+					};
+					t.notifications.procrastinate(req, notice);
 
 					// update the settings doc
 					const wr_opts = {
@@ -255,7 +369,7 @@ module.exports = function (logger, ev, t) {
 					}, (err_writeDoc) => {
 						if (err_writeDoc) {
 							logger.error('[permissions] cannot edit settings doc to delete users:', err_writeDoc);
-							cb({ statusCode: 500, msg: 'could not update settings doc', details: err_writeDoc }, null);
+							return cb({ statusCode: 500, msg: 'could not update settings doc', details: err_writeDoc }, null);
 						} else {
 							logger.info('[permissions] deleting users - success');
 
@@ -264,7 +378,7 @@ module.exports = function (logger, ev, t) {
 									logger.error('[permissions] error updating config settings', err);
 									return cb({ statusCode: 500, msg: 'could not update config settings' }, null);
 								} else {
-									cb(null, { message: 'ok', uuids: encodeURI(uuids) });	// all good
+									return cb(null, { message: 'ok', uuids: encodeURI(uuids) });	// all good
 								}
 							});
 						}
@@ -331,7 +445,7 @@ module.exports = function (logger, ev, t) {
 			const doc_to_write = {
 				_id: 'k' + t.misc.generateRandomString(15),		// this is the api key, must start with a letter
 				roles: lc_roles,
-				description: req.body.description || '-',
+				description: t.misc.safe_str(req.body.description) || '-',
 				//debug_api_secret_plain_text: secret,			// do not uncomment unless testing
 				salt: secret_details.salt,
 				hashed_secret: secret_details.hashed_secret,
@@ -382,7 +496,7 @@ module.exports = function (logger, ev, t) {
 			_id: '_design/athena-v1',		// name of design doc
 			view: '_doc_types',
 			query: 'key="api_key_doc"&reduce=false&include_docs=true',
-			SKIP_CACHE: (req.query.skip_cache === 'yes')
+			SKIP_CACHE: t.ot_misc.skip_cache(req)
 		};
 		t.otcc.getDesignDocView(opts, (err, resp) => {
 			if (err) {
@@ -422,7 +536,7 @@ module.exports = function (logger, ev, t) {
 	exports.delete_api_key = (req, cb) => {
 
 		// build a notification doc
-		const notice = { message: 'deleting api key ' + req.params.key_id.substring(0, 4) + '***' };
+		const notice = { message: 'deleting api key ' + req.params.key_id.substring(0, 4) + '***', api: 'DELETE:/api/v3/permissions/{apikey}' };
 		t.notifications.procrastinate(req, notice);
 
 		// delete the doc
@@ -446,10 +560,13 @@ module.exports = function (logger, ev, t) {
 	// Change my own password
 	//--------------------------------------------------
 	exports.change_password = (req, cb) => {
-		if (ev.AUTH_SCHEME !== 'couchdb') {
+		if (ev.AUTH_SCHEME !== 'couchdb' && !req._dry_run) {
 			logger.error('[pass] cannot edit passwords when auth scheme is ', ev.AUTH_SCHEME);
 			return cb({ statusCode: 400, msg: 'cannot edit passwords when auth scheme is ' + ev.AUTH_SCHEME });
 		} else {
+
+			const notice = { message: 'user is changing their password' };
+			t.notifications.procrastinate(req, notice);
 
 			// get the Athena settings doc first
 			t.otcc.getDoc({ db_name: ev.DB_SYSTEM, _id: process.env.SETTINGS_DOC_ID, SKIP_CACHE: true }, (err, settings_doc) => {
@@ -465,7 +582,7 @@ module.exports = function (logger, ev, t) {
 					// validate the new password
 					const uuid = t.middleware.getUuid(req);
 					const email = find_users_email(uuid, settings_doc);
-					if (!email) {
+					if (!email && !req._dry_run) {
 						input_errors.push('user by uuid does not exist: ' + encodeURI(uuid));
 					} else {
 						req.body.desired_pass = typeof req.body.desired_pass === 'string' ? req.body.desired_pass.trim() : '';	// protect user from whitespace
@@ -478,11 +595,11 @@ module.exports = function (logger, ev, t) {
 
 					// check results of the password
 					if (input_errors.length >= 1) {
-						logger.error('[pass] cannot change password. input errors:', input_errors);
-						cb({ statusCode: 400, msg: input_errors, }, null);
+						logger.error('[pass] not a viable password. rule failures');
+						return cb({ statusCode: 400, msg: input_errors, }, null);
 					} else if (req._dry_run === true) {
 						logger.info('[pass] detected dry-run password change. password would be valid.');	// dry run doesn't edit the pass or check existing
-						cb(null, { message: 'ok', details: 'password would be valid' });
+						return cb(null, { message: 'ok', details: 'password would be valid' });
 					}
 
 					// check if the current password was entered correctly
@@ -511,7 +628,7 @@ module.exports = function (logger, ev, t) {
 						// last minute escape
 						if (input_errors.length >= 1) {
 							logger.error('[pass] cannot change password. old password was wrong:', input_errors);
-							cb({ statusCode: 400, msg: input_errors, }, null);
+							return cb({ statusCode: 400, msg: input_errors, }, null);
 						} else {
 
 							// update the settings doc user password
@@ -525,7 +642,7 @@ module.exports = function (logger, ev, t) {
 							}, (err_writeDoc) => {
 								if (err_writeDoc) {
 									logger.error('[pass] cannot edit settings doc to change password:', err_writeDoc);
-									cb({ statusCode: 500, msg: 'could not update settings doc', details: err_writeDoc }, null);
+									return cb({ statusCode: 500, msg: 'could not update settings doc', details: err_writeDoc }, null);
 								} else {
 									logger.info('[pass] changing password - success');
 
@@ -535,7 +652,9 @@ module.exports = function (logger, ev, t) {
 											return cb({ statusCode: 500, msg: 'could not update config settings' }, null);
 										} else {
 											req.session.destroy(() => {			// important to call destroy so express ask for new sid
-												cb(null, { message: 'ok', details: 'password updated' });	// all good
+												setTimeout(() => {
+													return cb(null, { message: 'ok', details: 'password updated' });	// all good
+												}, 500);
 											});
 										}
 									});
@@ -638,7 +757,7 @@ module.exports = function (logger, ev, t) {
 			logged: t.middleware.isAuthenticated(req),				// true if user has logged in with auth scheme
 			authorized_actions: t.middleware.getActions(req),		// true if user has permissions on service
 			loggedInAs: {
-				name: t.middleware.getName(req),
+				name: t.middleware.getName(req) || email,
 				email: email,
 			},
 			censoredEmail: t.misc.censorEmail(email),				// to see what it looks like in the logs
@@ -648,6 +767,7 @@ module.exports = function (logger, ev, t) {
 			crn: ev.CRN || {},
 			session_expiration_ts: req.session ? req.session.backend_expires : '?',
 			session_expires_in_ms: req.session ? (req.session.backend_expires - Date.now()) : '?',
+			is_registered: (email && ev.ACCESS_LIST[email]) ? true : false,
 		};
 		if (ev.AUTH_SCHEME === 'couchdb') {
 			ret.password_type = t.middleware.getPasswordType(req);
@@ -656,88 +776,69 @@ module.exports = function (logger, ev, t) {
 	};
 
 	//--------------------------------------------------
-	// Store a new access token
+	// Store a new access token (exchange apikey for bearer token)
 	//--------------------------------------------------
 	exports.create_access_token = (req, cb) => {
-		let input_errors = [];
 		let roles = (req && req.body && req.body.roles) ? req.body.roles : null;
 		let expiration_secs = (req && req.body && !isNaN(req.body.expiration_secs)) ? req.body.expiration_secs : 3600;
 		const parsed_auth = t.auth_header_lib.parse_auth(req);
 		const lc_username = (parsed_auth && parsed_auth.name) ? parsed_auth.name.toLowerCase() : null;
-		const MAX_EXPIRATION_SECS = 60 * 60 * 24 * 15;
 
-		// init roles from user
 		if (!Array.isArray(roles) || roles.length === 0) {
-			roles = ev.ACCESS_LIST[lc_username].roles;
-		}
-
-		const lc_roles = validate_roles(roles);		// check the input roles
-		if (lc_roles === false) {
-			input_errors.push('invalid roles for api key. valid roles:' + JSON.stringify(Object.keys(ev.ROLES_TO_ACTIONS)));
-		} else if (lc_roles.length === 0) {
-			input_errors.push('must have at least 1 role for key.');
-		}
-
-		// check if user has these roles (this is overly protective, to even create a token the user needs "manager" which is the highest)
-		if (input_errors.length === 0) {
-			for (let i in roles) {
-				const role = roles[i];
-				if (!ev.ACCESS_LIST[lc_username].roles.includes(role)) {
-					logger.warn('[permissions] user doe not have role. roles:', ev.ACCESS_LIST[lc_username].roles);
-					input_errors.push('invalid roles, cannot set a role that the creating user does not have.');
-					break;
-				}
-			}
-		}
-
-		// check expiration
-		if (expiration_secs < 0 || expiration_secs > MAX_EXPIRATION_SECS) {
-			input_errors.push('invalid expiration. must be between 0 and ' + MAX_EXPIRATION_SECS + ' seconds.');
-		}
-
-		if (input_errors.length >= 1) {
-			logger.error('[permissions] cannot create access token. bad input:', input_errors);
-			cb({ statusCode: 400, msg: input_errors, }, null);
-		} else {
-
-			const access_token_doc = exports.generate_access_token(lc_username, roles, expiration_secs);
-
-			// build a notification doc
-			const notice = {
-				message: 'creating access token ' + access_token_doc._id.substring(0, 4) + '***',
-			};
-			t.notifications.procrastinate(req, notice);
-
-			// write the access token doc
-			const wr_opts = {
+			t.otcc.getDoc({									// find the api key, its id should be in the username field
 				db_name: ev.DB_SYSTEM,
-				doc: access_token_doc
-			};
-			t.otcc.createNewDoc(wr_opts, access_token_doc, (err_writeDoc, resp_writeDoc) => {
-				if (err_writeDoc) {
-					logger.error('[permissions] unable to write new access token doc', err_writeDoc);
-					return cb(err_writeDoc);
-				} else {
-					logger.info('[permissions]  creating the access token doc - success');
-					const ret = {
-						access_token: resp_writeDoc._id,		// the id is the token!
-						refresh_token: 'not_supported',
-						token_type: 'Bearer',
-						expires_in: resp_writeDoc.expires_in,
-						expiration: resp_writeDoc.expiration,
-						scope: 'ibp bearer',
-
-						roles: resp_writeDoc.roles,
-						message: 'ok'
-					};
-					return cb(null, ret);
+				_id: parsed_auth.name,
+			}, (err, doc) => {
+				if (err || !doc) {													// invalid username
+					logger.error(`[permissions] problem getting the api key doc for key id ${parsed_auth.name}`);
+					return cb(err);
 				}
+				return create_token_doc(req, lc_username, doc.roles, expiration_secs, cb);
 			});
+		} else {
+			return create_token_doc(req, lc_username, roles, expiration_secs, cb);
 		}
+
+	};
+
+	const create_token_doc = (req, lc_username, roles, expiration_secs, cb) => {
+		const access_token_doc = exports.generate_access_token(lc_username, roles, expiration_secs);
+
+		// build a notification doc
+		const notice = {
+			message: 'creating access token ' + access_token_doc._id.substring(0, 4) + '***',
+		};
+		t.notifications.procrastinate(req, notice);
+
+		// write the access token doc
+		const wr_opts = {
+			db_name: ev.DB_SYSTEM,
+			doc: access_token_doc
+		};
+		t.otcc.createNewDoc(wr_opts, access_token_doc, (err_writeDoc, resp_writeDoc) => {
+			if (err_writeDoc) {
+				logger.error('[permissions] unable to write new access token doc', err_writeDoc);
+				return cb(err_writeDoc);
+			} else {
+				logger.info('[permissions]  creating the access token doc - success');
+				const ret = {
+					access_token: resp_writeDoc._id,		// the id is the token!
+					refresh_token: 'not_supported',
+					token_type: 'Bearer',
+					expires_in: resp_writeDoc.expires_in,
+					expiration: resp_writeDoc.expiration,
+					scope: 'foc bearer',
+
+					roles: resp_writeDoc.roles,
+					message: 'ok'
+				};
+				return cb(null, ret);
+			}
+		});
 	};
 
 	//--------------------------------------------------
-	// Generate access token for exchange
+	// Generate access token for exchange - [access tokens expire]
 	//--------------------------------------------------
 	exports.generate_access_token = (lc_name, roles, expires_in) => {
 		const token = t.misc.generateRandomString(32);		// this is the token, its a secret
@@ -784,7 +885,7 @@ module.exports = function (logger, ev, t) {
 	exports.delete_access_token = (req, cb) => {
 
 		// build a notification doc
-		const notice = { message: 'deleting access token ' + req.params.id.substring(0, 4) + '***' };
+		const notice = { message: 'deleting access token ' + req.params.id.substring(0, 4) + '***', api: 'DELETE:/ak/api/v3/identity/token/{apikey}' };
 		t.notifications.procrastinate(req, notice);
 
 		// delete the doc
@@ -904,7 +1005,7 @@ module.exports = function (logger, ev, t) {
 				} else {
 					found_valid_token = true;
 					logger.debug('[migration] IAM access token is still valid for id:', session_user_id,
-						'time left:', t.mis.friendly_ms(time_left_ms));
+						'time left:', t.misc.friendly_ms(time_left_ms));
 				}
 			}
 

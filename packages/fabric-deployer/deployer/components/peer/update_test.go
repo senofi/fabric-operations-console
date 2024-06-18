@@ -21,7 +21,7 @@ package peer_test
 import (
 	"encoding/json"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
@@ -34,8 +34,8 @@ import (
 	"github.com/IBM-Blockchain/fabric-deployer/deployer/components/peer"
 	"github.com/IBM-Blockchain/fabric-deployer/deployer/components/peer/api"
 	"github.com/IBM-Blockchain/fabric-deployer/deployer/components/peer/mocks"
-	v1 "github.com/IBM-Blockchain/fabric-operator/api/peer/v1"
 	current "github.com/IBM-Blockchain/fabric-operator/api/v1beta1"
+	v1 "github.com/IBM-Blockchain/fabric-operator/pkg/apis/peer/v1"
 )
 
 var _ = Describe("Update API", func() {
@@ -73,10 +73,6 @@ var _ = Describe("Update API", func() {
 				},
 				Resources: &cfg.Resources{
 					Peer: &current.PeerResources{
-						DinD: &corev1.ResourceRequirements{
-							Requests: res,
-							Limits:   res,
-						},
 						Peer: &corev1.ResourceRequirements{
 							Requests: res,
 							Limits:   res,
@@ -86,10 +82,6 @@ var _ = Describe("Update API", func() {
 							Limits:   res,
 						},
 						GRPCProxy: &corev1.ResourceRequirements{
-							Requests: res,
-							Limits:   res,
-						},
-						FluentD: &corev1.ResourceRequirements{
 							Requests: res,
 							Limits:   res,
 						},

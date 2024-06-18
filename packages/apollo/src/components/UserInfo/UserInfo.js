@@ -20,7 +20,7 @@ import { updateState } from '../../redux/commonActions';
 import ConfigureAuthApi from '../../rest/ConfigureAuthApi';
 import ActionsHelper from '../../utils/actionsHelper';
 import Helper from '../../utils/helper';
-import UserAvatar20 from '@carbon/icons-react/lib/user--avatar/20';
+import { UserAvatar } from '@carbon/icons-react';
 
 const SCOPE = 'userInfo';
 
@@ -38,7 +38,7 @@ export class UserInfo extends Component {
 				role: this.props.userInfo
 					? ActionsHelper.canRestartOpTools(this.props.userInfo)
 						? 'manager'
-						: ActionsHelper.canImportComponent(this.props.userInfo)
+						: ActionsHelper.canImportComponent(this.props.userInfo, this.props.feature_flags)
 							? 'writer'
 							: 'reader'
 					: null,
@@ -53,7 +53,7 @@ export class UserInfo extends Component {
 				<div className="ibp-title-bar-login"
 					id="user-profile-container"
 				>
-					<UserAvatar20 className="ibp-user-info-header-icon" />
+					<UserAvatar size={20} className="ibp-user-info-header-icon" />
 				</div>
 			);
 		} else {
@@ -85,6 +85,7 @@ export default connect(
 		let newProps = Helper.mapStateToProps(state[SCOPE], dataProps);
 		newProps['userInfo'] = state['userInfo'] ? state['userInfo'] : null;
 		newProps['authScheme'] = state['settings'] ? state['settings']['authScheme'] : null;
+		newProps['feature_flags'] = state['settings'] ? state['settings']['feature_flags'] : null;
 		return newProps;
 	},
 	{

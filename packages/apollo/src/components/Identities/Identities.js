@@ -17,14 +17,12 @@
 import _ from 'lodash';
 import PropTypes from 'prop-types';
 import React, { Component } from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import emptyImage from '../../assets/images/empty_identities.svg';
 import { clearNotifications, showBreadcrumb, showError, updateState } from '../../redux/commonActions';
 import { CertificateAuthorityRestApi } from '../../rest/CertificateAuthorityRestApi';
 import IdentityApi from '../../rest/IdentityApi';
-import { OrdererRestApi } from '../../rest/OrdererRestApi';
-import { PeerRestApi } from '../../rest/PeerRestApi';
 import StitchApi from '../../rest/StitchApi';
 import Helper from '../../utils/helper';
 import AddIdentityModal from '../AddIdentityModal/AddIdentityModal';
@@ -33,6 +31,10 @@ import ItemContainer from '../ItemContainer/ItemContainer';
 import Logger from '../Log/Logger';
 import PageContainer from '../PageContainer/PageContainer';
 import PageHeader from '../PageHeader/PageHeader';
+import ActionsHelper from '../../utils/actionsHelper';
+import { NodeRestApi } from '../../rest/NodeRestApi';
+import withRouter from '../../hoc/withRouter';
+import { Row } from '@carbon/react';
 
 const SCOPE = 'identities';
 const Log = new Logger(SCOPE);
@@ -66,75 +68,66 @@ class Identities extends Component {
 		identity.connected = connected.join(', ');
 	}
 
-	async getCAsWithRootCerts() {
+	async getCAsWithRootCerts(cas) {
 		const list = [];
-		const cas = await CertificateAuthorityRestApi.getCAs();
-		for (let i = 0; i < cas.length; i++) {
-			const ca = cas[i];
-			const rootCert = await CertificateAuthorityRestApi.getRootCertificate(ca);
-			const tlsRootCert = await CertificateAuthorityRestApi.getRootCertificate(ca, true);
-			const rootCerts = [rootCert, tlsRootCert];
-			list.push({
-				...ca,
-				rootCerts,
-			});
-		}
+		let reqs = cas.map(async ca => {
+			try {
+				const rootCert = await CertificateAuthorityRestApi.getRootCertificate(ca);
+				const tlsRootCert = await CertificateAuthorityRestApi.getRootCertificate(ca, true);
+				const rootCerts = [rootCert, tlsRootCert];
+				list.push({
+					...ca,
+					rootCerts,
+				});
+			} catch (e) {
+				Log.error('unable to get root cert for ca', (ca ? ca.id : '?'), e);
+			}
+		});
+		await Promise.all(reqs);		// dsh todo - limit number of requests at a time
 		return list;
 	}
 
 	async getIdentities() {
 		this.props.updateState(SCOPE, { loading: true });
-		IdentityApi.getIdentities()
-			.then(ids => {
-				PeerRestApi.getPeers()
-					.then(peers => {
-						OrdererRestApi.getOrderers()
-							.then(orderers => {
-								this.getCAsWithRootCerts()
-									.then(async cas => {
-										for (let id of ids) {
-											for (let ca of cas) {
-												const data = {
-													certificate_b64pem: id.cert,
-													root_certs_b64pems: ca.rootCerts,
-												};
-												let match = await StitchApi.isIdentityFromRootCert(data);
-												if (match) {
-													if (id.from_ca === undefined) {
-														id.from_ca = [];
-													}
-													id.from_ca.push(ca.name);
-												}
-											}
-											this.resolveConnectedNodes(id, [...peers, ...orderers, ...cas]);
-										}
-										this.identities = [...ids];
-										this.props.updateState(SCOPE, { loading: false });
-									})
-									.catch(error => {
-										// unable to show ca names
-										this.identities = [...ids];
-										this.props.updateState(SCOPE, { loading: false });
-									});
-							})
-							.catch(error => {
-								// unable to show orderer names
-								this.identities = [...ids];
-								this.props.updateState(SCOPE, { loading: false });
-							});
-					})
-					.catch(error => {
-						// unable to show peer names
-						this.identities = [...ids];
-						this.props.updateState(SCOPE, { loading: false });
-					});
-			})
-			.catch(error => {
-				Log.error(error);
-				this.identities = [];
-				this.props.updateState(SCOPE, { loading: false });
-				this.props.showError('error_identities', {}, SCOPE);
-			});
+		let ids = [];
+
+		try {
+			ids = await IdentityApi.getIdentities();
+			const nodes = await NodeRestApi.getNodes();
+
+			let cas = nodes.filter((x) => { return x && x.type === 'fabric-ca'; });
+			const peers = nodes.filter((x) => { return x && x.type === 'fabric-peer'; });
+			const orderers = nodes.filter((x) => { return x && x.type === 'fabric-orderer'; });
+			cas = await this.getCAsWithRootCerts(cas);
+
+			for (let i in ids) {
+				const id = ids[i];
+				for (let z in cas) {
+					const ca = cas[z];
+					const data = {
+						certificate_b64pem: id.cert,
+						root_certs_b64pems: ca.rootCerts,
+					};
+					let match = await StitchApi.isIdentityFromRootCert(data);
+					if (match) {
+						if (id.from_ca === undefined) {
+							id.from_ca = [];
+						}
+						id.from_ca.push(ca.name);
+					}
+				}
+				this.resolveConnectedNodes(id, [...peers, ...orderers, ...cas]);
+			}
+			this.identities = [...ids];
+			this.props.updateState(SCOPE, { loading: false });
+		} catch (error) {
+			Log.error(error);
+
+			// unable to show ca names
+			this.identities = [...ids];
+			this.props.updateState(SCOPE, { loading: false });
+			this.props.showError('error_identities', {}, SCOPE);
+		}
 	}
 
 	openAddIdentity = () => {
@@ -187,7 +180,7 @@ class Identities extends Component {
 	buildCustomTile(identity) {
 		const parsedCert = window.stitch.parseCertificate(identity.cert);
 		const issuer = parsedCert.issuer;
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		const from_ca = identity.from_ca ? identity.from_ca.join(',') : '';
 		const label = _.endsWith(issuer, '-tlsca') ? 'from_tls_ca' : 'from_ca';
 		return (
@@ -205,13 +198,16 @@ class Identities extends Component {
 	render() {
 		return (
 			<PageContainer>
-				<div className="bx--row">
-					<div className="bx--col-lg-13">
-						<PageHeader
-							history={this.props.history}
-							headerName="wallet"
-							staticHeader
-						/>
+				<Row>
+					<PageHeader
+						history={this.props.history}
+						headerName="wallet"
+						staticHeader
+					/>
+				</Row>
+				<Row>
+					<div className='ibp-column width-100'>
+
 						{this.props.showAddIdentity && <AddIdentityModal onClose={this.closeAddIdenity}
 							onComplete={this.showNewIdentities}
 						/>}
@@ -263,13 +259,14 @@ class Identities extends Component {
 									{
 										text: 'add_identity',
 										fn: this.openAddIdentity,
+										disabled: ActionsHelper.inReadOnly(this.props.feature_flags),
 									},
 								]}
 								select={this.openIdentity}
 							/>
 						</div>
 					</div>
-				</div>
+				</Row>
 			</PageContainer>
 		);
 	}
@@ -287,7 +284,7 @@ Identities.propTypes = {
 	showBreadcrumb: PropTypes.func,
 	showError: PropTypes.func,
 	updateState: PropTypes.func,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default connect(
@@ -302,4 +299,4 @@ export default connect(
 		showError,
 		updateState,
 	}
-)(withLocalize(Identities));
+)(withTranslation()(withRouter(Identities)));

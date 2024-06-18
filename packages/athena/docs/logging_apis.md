@@ -7,7 +7,7 @@
 ## 1. Save client side logs to file system
 Send client side logs to the server to be logged to the file system.
 - **Method**: POST
-- **Route**: `/api/v1/logs`
+- **Route**: `/api/v[123]/logs`
 - **Auth**: login session
 - **Body**:
 ```js
@@ -24,7 +24,7 @@ Send client side logs to the server to be logged to the file system.
 Get a UI server log file by its filename.
 Response is html (not json).
 - **Method**: GET
-- **Route**: `/api/v1/logs`
+- **Route**: `/api/v[123]/logs`
 - **Auth**: needs action `blockchain.optools.logs`
 - **Body**: n/a
 - **Response**:
@@ -36,7 +36,7 @@ Response is html (not json).
 Get a UI server log file by its filename.
 Response is text (not json).
 - **Method**: GET
-- **Route**: `/api/v1/logs/:logFileName`
+- **Route**: `/api/v[123]/logs/:logFileName`
 - **Auth**: needs action `blockchain.optools.logs`
 - **Body**: n/a
 - **Response**:
@@ -48,7 +48,7 @@ Response is text (not json).
 Use this api to change logging settings.
 - **! [NOTE] ! This api will restart athena**
 - **Method**: PUT
-- **Route**: `/api/v1/logs/file_settings`
+- **Route**: `/api/v[123]/logs/file_settings`
 - **Auth**: needs action `blockchain.optools.logs`
 - **Body**:
 ```js
@@ -79,11 +79,11 @@ Use this api to change logging settings.
 
 <a name="client"></a>
 
-## 5. Send client side event
+## 5. Send client side event - legacy
+
+* Discontinued *
 Use this api to pass a client side event to the `event_tracker.js` lib on the server.
-If Activity Tracker is enabled it it will be recorded in the `activity.log` file.
-Activity Tracker is enabled if the `auth_scheme` setting is `"iam"` and the `activity_tracker_path` setting is not `null`.
-Only pass fabric events (fabric operations) b/c all component related events are already handled by athena.
+If Activity Tracker is enabled it it will be recorded.
 
 There are only a few things that apollo can send that will bubble up to the log of an activity tracker event:
 - `resource` - (in path) the type of resource for the event. becomes part of the event's `action` field (and others...). spaces or special characters will be removed.

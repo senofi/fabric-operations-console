@@ -13,11 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
 */
-import { Checkbox } from 'carbon-components-react';
+import { Checkbox } from "@carbon/react";
 import _ from 'lodash';
 import PropTypes from 'prop-types';
 import React, { Component } from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import { updateState } from '../../redux/commonActions';
 import { CertificateAuthorityRestApi } from '../../rest/CertificateAuthorityRestApi';
@@ -27,6 +27,7 @@ import Form from '../Form/Form';
 import Logger from '../Log/Logger';
 import Wizard from '../Wizard/Wizard';
 import WizardStep from '../WizardStep/WizardStep';
+import { EventsRestApi } from '../../rest/EventsRestApi';
 
 const SCOPE = 'addUser';
 const Log = new Logger(SCOPE);
@@ -78,6 +79,7 @@ export class CAAddUserModal extends Component {
 			};
 			CertificateAuthorityRestApi.addUser(this.props.ca, data)
 				.then(() => {
+					EventsRestApi.sendRegisterUserEvent(this.props.enroll_id, this.props.ca);
 					CertificateAuthorityRestApi.getUsers(this.props.ca)
 						.then(users => {
 							this.props.onComplete(users);
@@ -93,6 +95,7 @@ export class CAAddUserModal extends Component {
 				})
 				.catch(error => {
 					Log.error(error);
+					EventsRestApi.sendRegisterUserEvent(this.props.enroll_id, this.props.ca, 'error');
 					let message = _.get(error, 'msg.msg');
 					let message_key = 'error_ca_add_user';
 					if (message && message.indexOf('already registered') !== -1) {
@@ -226,7 +229,7 @@ export class CAAddUserModal extends Component {
 	}
 
 	render() {
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		return (
 			<Wizard title="register_user"
 				onClose={this.props.onClose}
@@ -260,7 +263,7 @@ CAAddUserModal.propTypes = {
 	onComplete: PropTypes.func,
 	onClose: PropTypes.func,
 	updateState: PropTypes.func,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default connect(
@@ -270,4 +273,4 @@ export default connect(
 	{
 		updateState,
 	}
-)(withLocalize(CAAddUserModal));
+)(withTranslation()(CAAddUserModal));

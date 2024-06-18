@@ -16,13 +16,15 @@
 import _ from 'lodash';
 import PropTypes from 'prop-types';
 import React, { Component } from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
-import { withRouter } from 'react-router-dom';
+// import { withRouter } from 'react-router-dom';
+import withRouter from '../../hoc/withRouter';
 import SettingsApi from '../../rest/SettingsApi';
 import Helper from '../../utils/helper';
 import LeftNavItem from '../LeftNavItem/LeftNavItem';
 import SubNavItem from '../SubNavItem/SubNavItem';
+import ActionsHelper from '../../utils/actionsHelper';
 
 const mainNav = [
 	{
@@ -57,10 +59,16 @@ const mainNav = [
 	},
 	{
 		icon: 'member',
-		path: '/users',
-		id: 'users',
+		path: '/access',
+		id: 'access',
 		globalNavSubmenu: [],
 		newGroup: true,
+	},
+	{
+		icon: 'find', // 'fingerprint' looks good to
+		path: '/audit',
+		id: 'audit_logs',
+		globalNavSubmenu: [],
 	},
 	{
 		icon: 'settings',
@@ -91,7 +99,7 @@ class LeftNav extends Component {
 
 	// change <title> of the browser tab
 	async getPageTitle(path) {
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		let title = translate('product_label');
 		let pathArray = path.split('/');
 		let suffix = pathArray[1];
@@ -115,11 +123,25 @@ class LeftNav extends Component {
 		return title;
 	}
 
+	// build the left navigation for the whole app
 	buildNavItems() {
 		if (this.props.submenu) {
 			return this.props.submenu;
 		}
-		return mainNav;
+
+		// remove audit log tab if its disabled
+		const origNav = JSON.parse(JSON.stringify(mainNav));
+		for (let i in origNav) {
+			if (origNav[i] && origNav[i].id === 'audit_logs') {
+				if (!this.props.auditLogsEnabled) {							// if its not enabled, remove the tab
+					origNav.splice(i, 1);
+				} else if (!ActionsHelper.canManageUsers(this.props.userInfo)) {	// if user is not a manager, remove the tab
+					origNav.splice(i, 1);
+				}
+				break;
+			}
+		}
+		return origNav;
 	}
 
 	buildBackNavItem() {
@@ -133,7 +155,7 @@ class LeftNav extends Component {
 
 	render() {
 		const items = this.buildNavItems();
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		return (
 			<div role="navigation"
 				className="ibp-left-nav"
@@ -174,17 +196,20 @@ const dataProps = {
 	location: PropTypes.shape({
 		pathname: PropTypes.string,
 	}),
+	auditLogsEnabled: PropTypes.bool,
+	userInfo: PropTypes.object,
 };
 
 LeftNav.propTypes = {
 	...dataProps,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default withRouter(
 	connect((state, props) => {
 		let newProps = Helper.mapStateToProps(state.leftNav, dataProps);
 		newProps['namespace'] = _.get(state, 'settings.cluster_data.namespace');
+		newProps['userInfo'] = state['userInfo'];
 		return newProps;
-	})(withLocalize(LeftNav))
+	})(withTranslation()(LeftNav))
 );

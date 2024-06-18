@@ -12,11 +12,11 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
-*/
+ */
 
 import React from 'react';
 import PropTypes from 'prop-types';
-import { Pagination } from 'carbon-components-react';
+import { Pagination } from '@carbon/react';
 
 const BlockchainPagination = ({
 	id,
@@ -58,14 +58,12 @@ const BlockchainPagination = ({
 		);
 	}
 	return (
-		<div id={id}
-			className="bx--pagination"
-		>
-			<div className="bx--pagination__left">
-				<span className="bx--pagination__text">{itemRangeText(min, max, totalItems)}</span>
+		<div id={id} className="cds--pagination">
+			<div className="cds--pagination__left">
+				<span className="cds--pagination__text">{itemRangeText(min, max, totalItems)}</span>
 			</div>
-			<div className="bx--pagination__right">
-				<span className="bx--pagination__text">
+			<div className="cds--pagination__right">
+				<span className="cds--pagination__text">
 					<input
 						id={id + '-input'}
 						style={{
@@ -78,7 +76,7 @@ const BlockchainPagination = ({
 						min={1}
 						max={pages}
 						value={page}
-						onChange={evt => {
+						onChange={(evt) => {
 							let value = Number(evt.target.value);
 							if (isNaN(value)) value = 1;
 							if (value < 1) value = 1;
@@ -92,7 +90,7 @@ const BlockchainPagination = ({
 				</span>
 				<button
 					type="button"
-					className="bx--pagination__button bx--pagination__button--backward"
+					className="cds--pagination__button cds--pagination__button--backward"
 					aria-label={backwardText}
 					onClick={() => {
 						onChange({ page: page - 1 });
@@ -113,7 +111,7 @@ const BlockchainPagination = ({
 				</button>
 				<button
 					type="button"
-					className="bx--pagination__button bx--pagination__button--forward"
+					className="cds--pagination__button cds--pagination__button--forward"
 					aria-label={forwardText}
 					onClick={() => {
 						onChange({ page: page + 1 });
@@ -150,7 +148,7 @@ BlockchainPagination.propTypes = {
 	pageSizes: PropTypes.array,
 	page: PropTypes.number,
 	onChange: PropTypes.func,
-	translate: PropTypes.func,
+	t: PropTypes.func,
 };
 
 export default BlockchainPagination;

@@ -105,18 +105,22 @@
 */
 module.exports = (logger, ev, t, opts) => {
 	const validate = {};
-	let flat_swag = {
-		v2: {
-			validate_error_messages: {},				// field is set later, will hold error message formats
-			paths: {},									// field is set later, all paths get set here, all $refs all flattened, thus no need to lookup $refs
-		},
-		v3: {
-			validate_error_messages: {},				// field is set later, will hold error message formats
-			paths: {},									// field is set later, all paths get set here, all $refs all flattened, thus no need to lookup $refs
-		}
-	};
+	const flat_swag = require('../json_docs/json_validation/swagger_flatten_validation.json');
+	// let flat_swag = {
+	// 	v2: {
+	// 		validate_error_messages: {},				// field is set later, will hold error message formats
+	// 		paths: {},									// field is set later, all paths get set here, all $refs all flattened, thus no need to lookup $refs
+	// 	},
+	// 	v3: {
+	// 		validate_error_messages: {},				// field is set later, will hold error message formats
+	// 		paths: {},									// field is set later, all paths get set here, all $refs all flattened, thus no need to lookup $refs
+	// 	}
+	// };
 	opts = opts ? opts : {};						// init
 
+	/**
+	 * Below Methods are not using, because directly fetching json
+	*/
 	//-------------------------------------------------------------
 	// load a swagger json/yaml files from paths
 	//-------------------------------------------------------------
@@ -159,7 +163,7 @@ module.exports = (logger, ev, t, opts) => {
 			return thing;
 		} else {
 			try {
-				return t.yaml.safeLoad(thing);
+				return t.yaml.load(thing);
 			} catch (e) {
 				logger.error('[validate] unable to convert yaml to json. e:', e);
 			}
@@ -285,6 +289,10 @@ module.exports = (logger, ev, t, opts) => {
 			return null;								// we did not find it
 		}
 	}
+
+	/**
+	 * Above Methods are not using, because directly fetching json
+	*/
 
 	//-------------------------------------------------------------
 	// style of our errors
@@ -605,7 +613,7 @@ module.exports = (logger, ev, t, opts) => {
 
 		// check for valid cpu values
 		if (body_spec.type === 'string' && body_spec['x-validate_cpu'] === true) {
-			let error = t.misc.invalid_cpu_value(input, body_spec['maximum'], body_spec['minimum']);
+			let error = t.misc.invalid_cpu_value(input, body_spec['x-maximum'], body_spec['x-minimum']);
 			if (error) {
 				const symbols = {
 					'$PROPERTY_NAME': path2field.join('.'),
@@ -616,7 +624,7 @@ module.exports = (logger, ev, t, opts) => {
 
 		// check for valid memory values
 		if (body_spec.type === 'string' && body_spec['x-validate_memory'] === true) {
-			let error = t.misc.invalid_bytes_value(input, body_spec['maximum'], body_spec['minimum']);
+			let error = t.misc.invalid_bytes_value(input, body_spec['x-maximum'], body_spec['x-minimum']);
 			if (error) {
 				const symbols = {
 					'$PROPERTY_NAME': path2field.join('.'),
@@ -627,7 +635,7 @@ module.exports = (logger, ev, t, opts) => {
 
 		// check for valid storage values
 		if (body_spec.type === 'string' && body_spec['x-validate_storage'] === true) {
-			let error = t.misc.invalid_bytes_value(input, body_spec['maximum'], body_spec['minimum']);
+			let error = t.misc.invalid_bytes_value(input, body_spec['x-maximum'], body_spec['x-minimum']);
 			if (error) {
 				const symbols = {
 					'$PROPERTY_NAME': path2field.join('.'),
@@ -756,7 +764,16 @@ module.exports = (logger, ev, t, opts) => {
 
 		// check if the hostname is in our whitelist or not
 		if (input && body_spec['x-validate_known_hostname'] === true) {
-			if (!t.ot_misc.validateUrl(input, req._whitelist || ev.HOST_WHITE_LIST)) {
+			let url_str = input;
+			const regex = new RegExp(/:\d{1,5}$/, 'i');
+			if (!regex.test(input)) {														// if no port in input find "port" field in body
+				const path2parent = path2field.slice(0, path2field.length - 1).join('.');			// get path to the parent object
+				const port = t.misc.safe_dot_nav(req_body, [								// get the value of "port" in req body
+					'req_body.' + path2parent + '.port',
+					'req_body.' + path2parent + '.caport']);
+				url_str = input + ':' + port;
+			}
+			if (!t.ot_misc.validateUrl(url_str, req._whitelist || ev.URL_SAFE_LIST)) {
 				const symbols = {
 					'$PROPERTY_NAME': path2field.join('.'),
 				};
@@ -770,22 +787,25 @@ module.exports = (logger, ev, t, opts) => {
 				logger.warn('[validate] skipping breaking version upgrade checks b/c "ignore_warnings" is true');
 			} else {
 				if (req._component_doc && req._component_doc.version) {
-					for (let from_version in body_spec['x-validate_breaking_version_upgrade']) {	// iter on each rule
-						const invalid_upgrade_version = body_spec['x-validate_breaking_version_upgrade'][from_version];
-						const comps_version_atm = req._component_doc.version;
-						const desired_version = input;
+					for (let from_version in body_spec['x-validate_breaking_version_upgrade']) {	// iter on each outer rule
+						const invalid_versions = body_spec['x-validate_breaking_version_upgrade'][from_version];
+						for (let z in invalid_versions) {											// iter on each sub rule
+							const invalid_upgrade_version = invalid_versions[z];
+							const comps_version_atm = req._component_doc.version;
+							const desired_version = input;
 
-						// first check if the version in use matches an incompatible upgrade rule
-						if (t.misc.version_matches_pattern(from_version, comps_version_atm)) {
+							// first check if the version in use matches an incompatible upgrade rule
+							if (t.misc.version_matches_pattern(from_version, comps_version_atm)) {
 
-							// next check if the desired version matches the incompatible upgrade rule
-							if (t.misc.version_matches_pattern(invalid_upgrade_version, desired_version)) {
-								const symbols = {
-									'$PROPERTY_NAME': path2field.join('.'),
-									'$VALUE': from_version,
-									'$VALUE2': invalid_upgrade_version,
-								};
-								errors.push({ key: 'invalid_fabric_upgrade', symbols: symbols });
+								// next check if the desired version matches the incompatible upgrade rule
+								if (t.misc.version_matches_pattern(invalid_upgrade_version, desired_version)) {
+									const symbols = {
+										'$PROPERTY_NAME': path2field.join('.'),
+										'$VALUE': from_version,
+										'$VALUE2': invalid_upgrade_version,
+									};
+									errors.push({ key: 'invalid_fabric_upgrade', symbols: symbols });
+								}
 							}
 						}
 					}
@@ -1095,11 +1115,11 @@ module.exports = (logger, ev, t, opts) => {
 	// --------------------------------------------
 	// start
 	// --------------------------------------------
-	if (opts.file_names) {
-		validate.load_swagger_paths(opts.file_names);
-	} else if (opts.files) {
-		validate.load_swaggers(opts.files);
-	}
+	// if (opts.file_names) {
+	// 	validate.load_swagger_paths(opts.file_names);
+	// } else if (opts.files) {
+	// 	validate.load_swaggers(opts.files);
+	// }
 	for (let ver in flat_swag) {
 		logger.info('[validate] loaded OpenAPI/Swagger file. Version:', flat_swag[ver] ? flat_swag[ver].version : '-');
 		//t.fs.writeFileSync('./test_swagger_flat_' + ver + '.json', JSON.stringify(flat_swag[ver], null, '\t')); // debug

@@ -6,7 +6,6 @@
 	],
 	"auto_fab_up_exp_too_close_days": 5,
 	"access_list": {},
-	"activity_tracker_path": "./logs/audit.log",
 	"app_id": {
 		"client_id": "-",
 		"oauth_url": "http://example.com",
@@ -16,13 +15,10 @@
 	"integration_test_enabled": false,
 	"app_port": 3000,
 	"allow_default_password": false,
-	"auth_scheme": "initial",
-	"backend_address_timeout_ms": 3000,
-	"ca_proxy_timeout": 10000,
+	"auth_scheme": "couchdb",
 	"cluster_data": {
 		"type": null
 	},
-	"configtxlator_timeout": 90000,
 	"configtxlator_url_original": "http://example.com:80",
 	"configtxlators": {
 		"v1.1.0": "http://example.com:80",
@@ -33,7 +29,11 @@
 		"instance_id": "-"
 	},
 	"crn_string": "-",
-	"db_custom_names": null,
+	"db_custom_names": {
+		"DB_COMPONENTS": "athena-components",
+		"DB_SESSIONS": "athena-sessions",
+		"DB_SYSTEM": "athena-system"
+	},
 	"db_defaults": {
 		"DB_COMPONENTS": {
 			"description": "db for peers/cas/orderers/collections/msps docs",
@@ -60,7 +60,6 @@
 	},
 	"default_user_password": null,
 	"default_user_password_initial": "ohnoididnotchangethepassword",
-	"deployer_timeout": 105000,
 	"deployer_url": "http://example.com:80",
 	"disabled_compaction": true,
 	"disable_auto_fab_up": true,
@@ -88,21 +87,15 @@
 			"V2_0"
 		]
 	},
-	"fabric_get_block_timeout_ms": 10000,
-	"fabric_instantiate_timeout_ms": 300000,
-	"fabric_join_channel_timeout_ms": 25000,
-	"fabric_install_cc_timeout_ms": 300000,
-	"fabric_lc_install_cc_timeout_ms": 300000,
-	"fabric_general_timeout_ms": 10000,
-	"fabric_lc_get_cc_timeout_ms": 180000,
 	"feature_flags": {
+		"audit_logging_enabled": true,
 		"capabilities_enabled": true,
 		"create_channel_enabled": true,
 		"high_availability": false,
 		"remote_peer_config_enabled": true,
 		"saas_enabled": true,
 		"templates_enabled": false,
-		"scale_raft_nodes_enabled": false,
+		"scale_raft_nodes_enabled": true,
 		"hsm_enabled": false,
 		"enable_ou_identifier": true,
 		"patch_1_4to2_x_enabled": true,
@@ -127,20 +120,19 @@
 	},
 	"csp_header_values": [
 		"connect-src *",
-		"default-src *.medallia.eu",
-		"font-src 'self' *.s81c.com fonts.gstatic.com",
+		"default-src 'none'",
+		"font-src 'self' *.s81c.com",
 		"frame-ancestors 'none'",
-		"img-src 'self' *.ibm.com appboy-images.com *.medallia.eu",
-		"script-src 'self' 'unsafe-eval' 'unsafe-inline' *.ibm.com api.segment.com cdn.segment.com console.bluemix.net *.braze.com lpcdn.lpsnmedia.net *.liveperson.net *.medallia.eu *.kampyle.com",
-		"style-src 'self' 'unsafe-inline' *.ibm.com *.medallia.eu"
+		"object-src 'none'",
+		"img-src 'self' *.ibm.com",
+		"script-src 'self' 'unsafe-eval' 'unsafe-inline' *.ibm.com",
+		"style-src 'self' 'unsafe-inline' *.ibm.com"
 	],
 	"host_url": "http://localhost:3000",
-	"host_white_list": [
+	"url_safe_list": [
 		".*"
 	],
 	"hsm": null,
-	"http_timeout": 120000,
-	"http_status_timeout": 1000,
 	"http_metrics_enabled": true,
 	"iam_api_key": null,
 	"iam_cache_enabled": true,
@@ -172,9 +164,16 @@
 	"migrated_console_url": null,
 	"migration_min_versions": {
 		"fabric-ca": "1.5.5",
-		"fabric-peer": "2.2.9",
-		"fabric-orderer": "2.2.9",
-		"kubernetes": "1.22"
+		"fabric-peer": [
+			"2.2.10",
+			"2.4.8"
+		],
+		"fabric-orderer": [
+			"2.2.10",
+			"2.4.8"
+		],
+		"kubernetes": "1.23",
+		"openshift": "4.9"
 	},
 	"migration_mon_inter_secs": 15,
 	"migration_status": {
@@ -197,6 +196,11 @@
 	"proxy_tls_ws_url": null,
 	"proxy_cache_enabled": true,
 	"regex": {
+		"is_email": {
+			"source": "^\\S+@\\S+\\.\\S+$",
+			"flags": "i",
+			"notes": "simple email addr validation, good enough for our purposes"
+		},
 		"is_grpc_url": {
 			"source": "^grpcs?://[\\w-._~]+:\\d{1,5}$",
 			"flags": "i",
@@ -243,6 +247,11 @@
 			"source": "^[a-z][a-z0-9_-]+$",
 			"flags": "",
 			"notes": "couchdb needs it to start with a letter, must be lower case, can contain numbers (deployer restrictions n/a)"
+		},
+		"channel_name": {
+			"source": "^[a-z][a-z0-9-.]+$",
+			"flags": "",
+			"notes": "The channel name can contain only lowercase characters, numbers, or dashes, and should start with a letter."
 		}
 	},
 	"region": "local",

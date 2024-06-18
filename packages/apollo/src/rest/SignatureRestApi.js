@@ -54,7 +54,8 @@ class SignatureRestApi {
 				if ((entry.admin || request.ccd) && entry.signature) {
 					signature_count++;
 				}
-				if ((entry.admin || request.ccd) && entry.optools_url === SignatureRestApi.optools_url && !entry.signature) {
+				if ((entry.admin || request.ccd) && Helper.urlsAreEqual(entry.optools_url, SignatureRestApi.optools_url) &&
+					!entry.signature) {
 					org_can_sign = true;
 				}
 			});
@@ -71,7 +72,7 @@ class SignatureRestApi {
 				if (entry.signature) {
 					orderer_signature_count++;
 				}
-				if (entry.optools_url === SignatureRestApi.optools_url && !entry.signature) {
+				if (Helper.urlsAreEqual(entry.optools_url, SignatureRestApi.optools_url) && !entry.signature) {
 					orderer_can_sign = true;
 				}
 			});
@@ -123,7 +124,7 @@ class SignatureRestApi {
 	static async getCreateChannelRequests(includeArchived) {
 		const requests = [];
 		try {
-			const resp = await RestApi.get('/api/v2/signature_collections?skip_cache=yes');
+			const resp = await RestApi.get('/api/v3/signature_collections?skip_cache=yes');
 			if (resp && resp.signature_collections) {
 				resp.signature_collections.forEach(sc => {
 					if (!sc.ccd && !sc.json_diff && sc.status === 'closed') {
@@ -144,7 +145,7 @@ class SignatureRestApi {
 	}
 
 	static async getFixedRequests() {
-		const resp = await RestApi.get('/api/v2/signature_collections?skip_cache=yes');
+		const resp = await RestApi.get('/api/v3/signature_collections?skip_cache=yes');
 		let defs = {};
 		for (let i = 0; i < resp.signature_collections.length; i++) {
 			const request = resp.signature_collections[i];
@@ -257,7 +258,7 @@ class SignatureRestApi {
 
 	static getRequest(tx_id) {
 		return new Promise((resolve, reject) => {
-			RestApi.get('/api/v2/signature_collections/' + tx_id)
+			RestApi.get('/api/v3/signature_collections/' + tx_id)
 				.then(result => {
 					resolve(result);
 				})
@@ -360,9 +361,10 @@ class SignatureRestApi {
 				});
 			}
 
+			Log.info('Requesting signature collection, sending:', JSON.stringify(request));
 			StitchApi.buildSigCollectionAuthHeader(request, originator_private_key).then((authorization) => {
 				const header = { Authorization: authorization };
-				RestApi.post('/api/v2/signature_collections', request, header)
+				RestApi.post('/api/v3/signature_collections', request, header)
 					.then(resp => {
 						request.distribution_responses = _.isArray(resp.distribution_responses) ? resp.distribution_responses : [resp.distribution_responses];
 						SignatureRestApi.getAllRequests();
@@ -400,7 +402,7 @@ class SignatureRestApi {
 		const header = {
 			Authorization: await StitchApi.buildSigCollectionAuthHeader(body, opts.private_key),
 		};
-		await RestApi.put('/api/v2/signature_collections/' + request.tx_id, body, header);
+		await RestApi.put('/api/v3/signature_collections/' + request.tx_id, body, header);
 		SignatureRestApi.getAllRequests();
 		return;
 	}
@@ -426,7 +428,7 @@ class SignatureRestApi {
 				const signer_certificate = opts.client_cert_b64pem;
 				const signer_private_key = opts.client_prv_key_b64pem;
 
-				window.stitch.signConfigUpdate(opts, async(err, resp) => {
+				window.stitch.signConfigUpdate(opts, async (err, resp) => {
 					if (err || !resp) {
 						error = err || 'signature failed';
 					} else {
@@ -458,7 +460,7 @@ class SignatureRestApi {
 								Authorization: await StitchApi.buildSigCollectionAuthHeader(body, signer_private_key),
 							};
 
-							RestApi.put('/api/v2/signature_collections/' + request.tx_id, body, header)
+							RestApi.put('/api/v3/signature_collections/' + request.tx_id, body, header)
 								.then(() => {
 									SignatureRestApi.getAllRequests();
 									resolve();
@@ -476,7 +478,7 @@ class SignatureRestApi {
 	static redistributeRequest(request) {
 		return new Promise((resolve, reject) => {
 			const body = {};
-			RestApi.put('/api/v2/signature_collections/' + request.tx_id + '/resend', body)
+			RestApi.put('/api/v3/signature_collections/' + request.tx_id + '/resend', body)
 				.then(resp => {
 					resolve(request);
 				})
@@ -498,7 +500,7 @@ class SignatureRestApi {
 			Authorization: await StitchApi.buildSigCollectionAuthHeader(body, request.client_prv_key_b64pem),
 		};
 		return new Promise((resolve, reject) => {
-			RestApi.delete('/api/v2/signature_collections/' + request.tx_id, body, header)
+			RestApi.delete('/api/v3/signature_collections/' + request.tx_id, body, header)
 				.then(resp => {
 					resolve(request);
 				})
@@ -522,7 +524,7 @@ class SignatureRestApi {
 
 			StitchApi.buildSigCollectionAuthHeader(body, request.client_prv_key_b64pem).then((authorization) => {
 				const header = { Authorization: authorization };
-				RestApi.put('/api/v2/signature_collections/' + request.tx_id, body, header)
+				RestApi.put('/api/v3/signature_collections/' + request.tx_id, body, header)
 					.then(resp => {
 						SignatureRestApi.getAllRequests();
 						resolve();
@@ -538,7 +540,7 @@ class SignatureRestApi {
 
 	static toggleVisibility(requestBody) {
 		return new Promise((resolve, reject) => {
-			RestApi.put('/api/v2/signature_collections/bulk/visibility', requestBody)
+			RestApi.put('/api/v3/signature_collections/bulk/visibility', requestBody)
 				.then(() => {
 					resolve(requestBody);
 				})
@@ -572,8 +574,9 @@ class SignatureRestApi {
 			const submitter_msp = opts.msp_id;
 			const submitter_certificate = opts.client_cert_b64pem;
 			const submitter_private_key = opts.client_prv_key_b64pem;
-			window.stitch.submitConfigUpdate(opts, async(err, resp) => {
+			window.stitch.submitConfigUpdate(opts, async (err, resp) => {
 				if (err || !resp) {
+					EventsRestApi.sendUpdateChannelEvent(opts.channel_id, opts.msp_id, 'error');
 					reject(err);
 				} else {
 					const body = {
@@ -591,7 +594,7 @@ class SignatureRestApi {
 
 					// send async event... don't wait
 					EventsRestApi.sendUpdateChannelEvent(opts.channel_id, opts.msp_id);
-					RestApi.put('/api/v2/signature_collections/' + request.tx_id, body, header)
+					RestApi.put('/api/v3/signature_collections/' + request.tx_id, body, header)
 						.then(resp => {
 							SignatureRestApi.getAllRequests();
 							resolve();

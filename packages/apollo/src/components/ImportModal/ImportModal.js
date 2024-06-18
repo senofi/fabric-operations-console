@@ -16,7 +16,7 @@
 import _ from 'lodash';
 import PropTypes from 'prop-types';
 import React from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import { updateState } from '../../redux/commonActions';
 import { CA_TYPE, CertificateAuthorityRestApi } from '../../rest/CertificateAuthorityRestApi';
@@ -30,6 +30,7 @@ import Logger from '../Log/Logger';
 import SVGs from '../Svgs/Svgs';
 import Wizard from '../Wizard/Wizard';
 import WizardStep from '../WizardStep/WizardStep';
+import { EventsRestApi } from '../../rest/EventsRestApi';
 const JSZip = require('jszip');
 
 const SCOPE = 'importModal';
@@ -65,6 +66,13 @@ class ImportModal extends React.Component {
 	async createItems(items) {
 		let newItems;
 		let newItem;
+		try {
+			if (items.length > 0) {
+				EventsRestApi.recordActivity({ status: 'success', log: 'importing ' + items.length + ' item' + (items.length > 1 ? 's' : '') + ' from zip' });
+			}
+		} catch (e) {
+			console.error('unable to record import', e);
+		}
 		while (items.length > 0) {
 			const item = items.pop();
 			newItem = null;
@@ -96,6 +104,15 @@ class ImportModal extends React.Component {
 								// New ordering node for existing cluster
 								newItems = await OrdererRestApi.importOrderer([item]);
 								newItem = newItems[0];
+							} else {
+								try {
+									EventsRestApi.recordActivity({
+										status: 'success',
+										log: 'skipping import of an already known ordering node "' + (item.display_name || '-') + '"'
+									});
+								} catch (e) {
+									console.error('unable to record import', e);
+								}
 							}
 						} else {
 							// Ordering node for new cluster
@@ -524,7 +541,7 @@ class ImportModal extends React.Component {
 	};
 
 	render() {
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		return (
 			<Wizard
 				title="import"
@@ -593,7 +610,7 @@ ImportModal.propTypes = {
 	onComplete: PropTypes.func,
 	onClose: PropTypes.func,
 	updateState: PropTypes.func,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default connect(
@@ -603,4 +620,4 @@ export default connect(
 	{
 		updateState,
 	}
-)(withLocalize(ImportModal));
+)(withTranslation()(ImportModal));

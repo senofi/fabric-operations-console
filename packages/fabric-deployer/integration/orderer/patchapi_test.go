@@ -24,12 +24,12 @@ import (
 	"fmt"
 	"net/http"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/IBM-Blockchain/fabric-deployer/deployer/components/orderer/api"
-	v2orderer "github.com/IBM-Blockchain/fabric-operator/api/orderer/v2"
 	current "github.com/IBM-Blockchain/fabric-operator/api/v1beta1"
+	v2orderer "github.com/IBM-Blockchain/fabric-operator/pkg/apis/orderer/v2"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"

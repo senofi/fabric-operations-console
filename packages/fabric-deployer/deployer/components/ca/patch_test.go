@@ -21,7 +21,7 @@ package ca_test
 import (
 	"encoding/json"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
@@ -31,8 +31,8 @@ import (
 	"github.com/IBM-Blockchain/fabric-deployer/deployer/components/ca"
 	"github.com/IBM-Blockchain/fabric-deployer/deployer/components/ca/api"
 	"github.com/IBM-Blockchain/fabric-deployer/deployer/components/ca/mocks"
-	v1ca "github.com/IBM-Blockchain/fabric-operator/api/ca/v1"
 	current "github.com/IBM-Blockchain/fabric-operator/api/v1beta1"
+	v1ca "github.com/IBM-Blockchain/fabric-operator/pkg/apis/ca/v1"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"

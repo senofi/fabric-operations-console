@@ -13,15 +13,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
 */
-import { Checkbox, CodeSnippet, ContentSwitcher, SkeletonText, Switch } from 'carbon-components-react';
+import { Checkbox, CodeSnippet, ContentSwitcher, SkeletonText, Switch } from "@carbon/react";
 import _ from 'lodash';
 import PropTypes from 'prop-types';
 import React from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import { updateState } from '../../redux/commonActions';
 import { CertificateAuthorityRestApi } from '../../rest/CertificateAuthorityRestApi';
-import ComponentApi from '../../rest/ComponentApi';
 import IdentityApi from '../../rest/IdentityApi';
 import { NodeRestApi } from '../../rest/NodeRestApi';
 import ActionsHelper from '../../utils/actionsHelper';
@@ -37,6 +36,7 @@ import SidePanelWarning from '../SidePanelWarning/SidePanelWarning';
 import TranslateLink from '../TranslateLink/TranslateLink';
 import Wizard from '../Wizard/Wizard';
 import WizardStep from '../WizardStep/WizardStep';
+import RenderParamHTML from '../RenderHTML/RenderParamHTML';
 
 const SCOPE = 'caModal';
 const Log = new Logger(SCOPE);
@@ -77,7 +77,7 @@ export class CAModal extends React.Component {
 		}
 		if (this.props.caModalType === 'settings') {
 			try {
-				const ca_details = await ComponentApi.getComponent(this.props.ca);
+				const ca_details = await NodeRestApi.api_getCurrentNodeDeployer(this.props.ca);
 				const tls_cert = _.get(ca_details, 'msp.component.tls_cert');
 				if (tls_cert && tls_cert !== _.get(this.props.ca, 'msp.component.tls_cert')) {
 					this.props.updateState(SCOPE, {
@@ -115,22 +115,6 @@ export class CAModal extends React.Component {
 		}
 		CertificateAuthorityRestApi.updateCA(ca)
 			.then(() => {
-				if (window.trackEvent) {
-					window.trackEvent('Updated Object', {
-						objectType: 'Certificate Authority',
-						object:
-							this.props.ca.location === 'ibm_saas' && this.props.crn_string
-								? `${this.props.crn_string}fabric-ca:${Helper.hash_str(this.props.ca.id)}`
-								: Helper.hash_str(this.props.ca.display_name),
-						category: 'foundational',
-						tenantId: this.props.CRN.instance_id,
-						accountGuid: this.props.CRN.account_id,
-						url: this.props.ca.api_url,
-						milestoneName: 'Update certificate authority',
-						'user.email': this.props.userInfo.loggedInAs.email,
-						'meta.region': this.props.ca.location,
-					});
-				}
 				this.props.onComplete({
 					...this.props.ca,
 					...ca,
@@ -175,26 +159,6 @@ export class CAModal extends React.Component {
 		}
 
 		this.onComplete();
-		try {
-			if (window.trackEvent) {
-				window.trackEvent('Deleted Object', {
-					objectType: 'Certificate Authority',
-					object:
-						this.props.ca.location === 'ibm_saas' && this.props.crn_string
-							? `${this.props.crn_string}fabric-ca:${Helper.hash_str(this.props.ca.id)}`
-							: Helper.hash_str(this.props.ca.display_name),
-					category: 'foundational',
-					tenantId: this.props.CRN.instance_id,
-					accountGuid: this.props.CRN.account_id,
-					url: this.props.ca.api_url,
-					milestoneName: this.props.ca.location === 'ibm_saas' ? 'Delete certificate authority' : 'Remove certificate authority',
-					'user.email': this.props.userInfo.loggedInAs.email,
-					'meta.region': this.props.ca.location,
-				});
-			}
-		} catch (error) {
-			Log.warn(`${prefix} event tracking failed: ${error}`);
-		}
 	}
 
 	upgradeNode = (resolve, reject) => {
@@ -375,7 +339,7 @@ export class CAModal extends React.Component {
 				/>
 				<div className="ibp-form">
 					<div className="ibp-form-field">
-						<p>
+						<div>
 							<BlockchainTooltip type="definition"
 								tooltipText={translate('config_override_delta')}
 							>
@@ -384,7 +348,7 @@ export class CAModal extends React.Component {
 							<TranslateLink text="config_override_update_ca"
 								className="ibp-ca-config-override-desc-with-link"
 							/>
-						</p>
+						</div>
 						<p className="ibp-form-input">
 							<ConfigOverride
 								id="ibp-config-override"
@@ -420,7 +384,7 @@ export class CAModal extends React.Component {
 			);
 		}
 		const buttons = [];
-		const saas = this.props.ca.location === 'ibm_saas' && ActionsHelper.canCreateComponent(this.props.userInfo);
+		const saas = this.props.ca.location === 'ibm_saas' && ActionsHelper.canCreateComponent(this.props.userInfo, this.props.feature_flags);
 		if (saas) {
 			if (this.props.clusterType !== 'free') {
 				buttons.push({
@@ -469,7 +433,7 @@ export class CAModal extends React.Component {
 					<button
 						id={button.id}
 						key={button.id}
-						className="ibp-ca-action bx--btn bx--btn--tertiary bx--btn--sm"
+						className="ibp-ca-action cds--btn cds--btn--tertiary cds--btn--sm"
 						onClick={() => {
 							if (button.onClick) {
 								button.onClick();
@@ -497,8 +461,10 @@ export class CAModal extends React.Component {
 		}
 		// get all the peers and ordering nodes in the system
 		const nodes_to_update = [];
-		const nodes = (await NodeRestApi.getNodes('fabric-peer')) || [];
-		const orderers = (await NodeRestApi.getNodes('fabric-orderer')) || [];
+		const all_nodes = await NodeRestApi.getNodes(['fabric-peer', 'fabric-orderer']);
+		const nodes = (Array.isArray(all_nodes) && all_nodes.length > 0) ? all_nodes.filter(n => n && n.type === 'fabric-peer') : [];
+		const orderers = (Array.isArray(all_nodes) && all_nodes.length > 0) ? all_nodes.filter(n => n && n.type === 'fabric-orderer') : [];
+
 		orderers.forEach(orderer => {
 			if (orderer.raft) {
 				orderer.raft.forEach(raft => {
@@ -565,31 +531,25 @@ export class CAModal extends React.Component {
 			>
 				<div className="ibp-remove-ca-desc">
 					<p>
-						{this.props.ca.location === 'ibm_saas'
-							? translate('delete_ca_desc', {
-								name: (
-									<CodeSnippet
-										type="inline"
-										ariaLabel={translate('copy_text', { copyText: this.props.ca.display_name })}
-										light={false}
-										onClick={() => Clipboard.copyToClipboard(this.props.ca.display_name)}
-									>
-										{this.props.ca.display_name}
-									</CodeSnippet>
-								),
-							})
-							: translate('remove_ca_desc', {
-								name: (
-									<CodeSnippet
-										type="inline"
-										ariaLabel={translate('copy_text', { copyText: this.props.ca.display_name })}
-										light={false}
-										onClick={() => Clipboard.copyToClipboard(this.props.ca.display_name)}
-									>
-										{this.props.ca.display_name}
-									</CodeSnippet>
-								),
-							})}
+						{this.props.ca.location === 'ibm_saas' ? RenderParamHTML(translate, 'delete_ca_desc', {
+							name: <CodeSnippet
+								type="inline"
+								ariaLabel={translate('copy_text', { copyText: this.props.ca.display_name })}
+								light={false}
+								onClick={() => Clipboard.copyToClipboard(this.props.ca.display_name)}
+							>
+								{this.props.ca.display_name}
+							</CodeSnippet>
+						}) : RenderParamHTML(translate, 'remove_ca_desc', {
+							name: <CodeSnippet
+								type="inline"
+								ariaLabel={translate('copy_text', { copyText: this.props.ca.display_name })}
+								light={false}
+								onClick={() => Clipboard.copyToClipboard(this.props.ca.display_name)}
+							>
+								{this.props.ca.display_name}
+							</CodeSnippet>
+						})}
 					</p>
 				</div>
 				<div className="ibp-remove-ca-confirm">{translate('remove_ca_confirm')}</div>
@@ -603,7 +563,7 @@ export class CAModal extends React.Component {
 						},
 					]}
 				/>
-			</WizardStep>
+			</WizardStep >
 		);
 	}
 
@@ -617,17 +577,15 @@ export class CAModal extends React.Component {
 				<div>
 					<div className="ibp-remove-peer-desc">
 						<p>
-							{translate('upgrade_node_desc', {
-								name: (
-									<CodeSnippet
-										type="inline"
-										ariaLabel={translate('copy_text', { copyText: this.props.ca.display_name })}
-										light={false}
-										onClick={() => Clipboard.copyToClipboard(this.props.ca.display_name)}
-									>
-										{this.props.ca.display_name}
-									</CodeSnippet>
-								),
+							{RenderParamHTML(translate, 'upgrade_node_desc', {
+								name: <CodeSnippet
+									type="inline"
+									ariaLabel={translate('copy_text', { copyText: this.props.ca.display_name })}
+									light={false}
+									onClick={() => Clipboard.copyToClipboard(this.props.ca.display_name)}
+								>
+									{this.props.ca.display_name}
+								</CodeSnippet>
 							})}
 						</p>
 					</div>
@@ -688,7 +646,7 @@ export class CAModal extends React.Component {
 				<div>
 					<div className="ibp-remove-peer-desc">
 						<p>
-							{translate('confirm_patch_desc', {
+							{RenderParamHTML(translate, 'confirm_patch_desc', {
 								name: (
 									<CodeSnippet
 										type="inline"
@@ -708,7 +666,7 @@ export class CAModal extends React.Component {
 									>
 										{this.props.new_version}
 									</CodeSnippet>
-								),
+								)
 							})}
 						</p>
 					</div>
@@ -742,7 +700,7 @@ export class CAModal extends React.Component {
 			enroll_in_progress: false,
 			enroll_certificate: null,
 			enroll_private_key: null,
-			enroll_identity_name: this.props.ca.display_name + ' ' + (this.props.translate ? this.props.translate('admin') : 'Admin'),
+			enroll_identity_name: this.props.ca.display_name + ' ' + (this.props.t ? this.props.t('admin') : 'Admin'),
 			enroll_identity_valid: false,
 			identityValid: false,
 		};
@@ -778,7 +736,7 @@ export class CAModal extends React.Component {
 							Log.error(error);
 							let details = error;
 							if (error.title) {
-								details.error = this.props.translate(error.title);
+								details.error = this.props.t(error.title);
 							}
 							reject({
 								title: 'error_add_identity',
@@ -1122,7 +1080,7 @@ export class CAModal extends React.Component {
 				<div>
 					<button
 						id="update_hsm_action"
-						className="ibp-ca-action bx--btn bx--btn--tertiary bx--btn--sm"
+						className="ibp-ca-action cds--btn cds--btn--tertiary cds--btn--sm"
 						onClick={() => {
 							this.showAction('update_hsm');
 						}}
@@ -1131,7 +1089,7 @@ export class CAModal extends React.Component {
 					</button>
 					<button
 						id="remove_hsm_action"
-						className="ibp-ca-action bx--btn bx--btn--sm bx--btn--danger"
+						className="ibp-ca-action cds--btn cds--btn--sm cds--btn--danger"
 						onClick={() => {
 							this.showAction('remove_hsm');
 						}}
@@ -1290,7 +1248,7 @@ export class CAModal extends React.Component {
 	}
 
 	render() {
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		return (
 			<Wizard
 				onClose={this.props.onClose}
@@ -1343,7 +1301,7 @@ CAModal.propTypes = {
 	onComplete: PropTypes.func,
 	onClose: PropTypes.func,
 	updateState: PropTypes.func,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default connect(
@@ -1359,4 +1317,4 @@ export default connect(
 	{
 		updateState,
 	}
-)(withLocalize(CAModal));
+)(withTranslation()(CAModal));

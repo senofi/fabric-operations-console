@@ -23,8 +23,8 @@ import (
 	"strings"
 	"time"
 
-	config "github.com/IBM-Blockchain/fabric-operator/api/peer/v1"
-	v2config "github.com/IBM-Blockchain/fabric-operator/api/peer/v2"
+	config "github.com/IBM-Blockchain/fabric-operator/pkg/apis/peer/v1"
+	v2config "github.com/IBM-Blockchain/fabric-operator/pkg/apis/peer/v2"
 	"github.com/pkg/errors"
 
 	dconfig "github.com/IBM-Blockchain/fabric-deployer/config"
@@ -76,6 +76,7 @@ type Kube interface {
 	GetPort(namespace, name string) (int32, error)
 	GetPorts(namespace, name string) ([]corev1.ServicePort, error)
 	CreateSecret(namespace string, secret *corev1.Secret) (*corev1.Secret, error)
+	ClusterType(namespace string) string
 }
 
 //go:generate counterfeiter -o mocks/ibp_client.go -fake-name IBPOperatorClient . IBPOperatorClient
@@ -107,10 +108,7 @@ func New(logger *zap.Logger, k8sClient Kube, ibpClient IBPOperatorClient, config
 
 func (peer *Peer) Images(version string) *current.PeerImages {
 	peerVersionedImages := peer.Config.Versions.Peer[version].Image
-	isVersion14X := false
-	if strings.HasPrefix(version, "1.4") {
-		isVersion14X = true
-	}
+
 	images := &current.PeerImages{}
 
 	images.PeerImage = peerVersionedImages.PeerImage
@@ -123,19 +121,14 @@ func (peer *Peer) Images(version string) *current.PeerImages {
 		images.HSMImage = peerVersionedImages.HSMImage
 	}
 
-	if isVersion14X {
-		images.DindImage = peerVersionedImages.DindImage
-		images.FluentdImage = peerVersionedImages.FluentdImage
-	} else {
-		images.CCLauncherImage = peerVersionedImages.CCLauncherImage
-		images.FileTransferImage = peerVersionedImages.FileTransferImage
-		images.BuilderImage = peerVersionedImages.BuilderImage
-		images.GoEnvImage = peerVersionedImages.GoEnvImage
-		images.JavaEnvImage = peerVersionedImages.JavaEnvImage
-		images.NodeEnvImage = peerVersionedImages.NodeEnvImage
-	}
+	images.CCLauncherImage = peerVersionedImages.CCLauncherImage
+	images.FileTransferImage = peerVersionedImages.FileTransferImage
+	images.BuilderImage = peerVersionedImages.BuilderImage
+	images.GoEnvImage = peerVersionedImages.GoEnvImage
+	images.JavaEnvImage = peerVersionedImages.JavaEnvImage
+	images.NodeEnvImage = peerVersionedImages.NodeEnvImage
 
-	if peer.Config.UseTags != nil && *peer.Config.UseTags {
+	if peer.Config.UseTags == nil || *peer.Config.UseTags == true {
 		// Set the tags
 		images.PeerInitTag = peerVersionedImages.PeerInitTag
 		images.PeerTag = peerVersionedImages.PeerTag
@@ -146,17 +139,14 @@ func (peer *Peer) Images(version string) *current.PeerImages {
 		if peerVersionedImages.HSMImage != "" {
 			images.HSMTag = peerVersionedImages.HSMTag
 		}
-		if isVersion14X {
-			images.DindTag = peerVersionedImages.DindTag
-			images.FluentdTag = peerVersionedImages.FluentdTag
-		} else {
-			images.CCLauncherTag = peerVersionedImages.CCLauncherTag
-			images.FileTransferTag = peerVersionedImages.FileTransferTag
-			images.BuilderTag = peerVersionedImages.BuilderTag
-			images.GoEnvTag = peerVersionedImages.GoEnvTag
-			images.JavaEnvTag = peerVersionedImages.JavaEnvTag
-			images.NodeEnvTag = peerVersionedImages.NodeEnvTag
-		}
+
+		images.CCLauncherTag = peerVersionedImages.CCLauncherTag
+		images.FileTransferTag = peerVersionedImages.FileTransferTag
+		images.BuilderTag = peerVersionedImages.BuilderTag
+		images.GoEnvTag = peerVersionedImages.GoEnvTag
+		images.JavaEnvTag = peerVersionedImages.JavaEnvTag
+		images.NodeEnvTag = peerVersionedImages.NodeEnvTag
+
 	} else {
 		// set the digests to the tags
 		images.PeerInitTag = peerVersionedImages.PeerInitDigest
@@ -169,17 +159,13 @@ func (peer *Peer) Images(version string) *current.PeerImages {
 			images.HSMTag = peerVersionedImages.HSMDigest
 		}
 
-		if isVersion14X {
-			images.DindTag = peerVersionedImages.DindDigest
-			images.FluentdTag = peerVersionedImages.FluentdDigest
-		} else {
-			images.CCLauncherTag = peerVersionedImages.CCLauncherDigest
-			images.FileTransferTag = peerVersionedImages.FileTransferDigest
-			images.BuilderTag = peerVersionedImages.BuilderDigest
-			images.GoEnvTag = peerVersionedImages.GoEnvDigest
-			images.JavaEnvTag = peerVersionedImages.JavaEnvDigest
-			images.NodeEnvTag = peerVersionedImages.NodeEnvDigest
-		}
+		images.CCLauncherTag = peerVersionedImages.CCLauncherDigest
+		images.FileTransferTag = peerVersionedImages.FileTransferDigest
+		images.BuilderTag = peerVersionedImages.BuilderDigest
+		images.GoEnvTag = peerVersionedImages.GoEnvDigest
+		images.JavaEnvTag = peerVersionedImages.JavaEnvDigest
+		images.NodeEnvTag = peerVersionedImages.NodeEnvDigest
+
 	}
 	return images
 }
@@ -443,10 +429,6 @@ func (peer *Peer) GetResources(defaults current.PeerResources, override *current
 			overrideResources(resources.Peer, initResources(override.Peer))
 		}
 
-		if override.DinD != nil {
-			overrideResources(resources.DinD, initResources(override.DinD))
-		}
-
 		if strings.ToLower(statedb) == "couchdb" {
 			if override.CouchDB != nil {
 				overrideResources(resources.CouchDB, initResources(override.CouchDB))
@@ -459,19 +441,12 @@ func (peer *Peer) GetResources(defaults current.PeerResources, override *current
 			overrideResources(resources.GRPCProxy, initResources(override.GRPCProxy))
 		}
 
-		if override.FluentD != nil {
-			overrideResources(resources.FluentD, initResources(override.FluentD))
-		}
-
 		if override.Init != nil {
 			overrideResources(resources.Init, initResources(override.Init))
 		}
 
-		// Fabric version 2.x does not require FluentD and DinD
+		// Fabric version 2.x does not require
 		if util.GetMajorRelease(fabricVersion) == 2 {
-			resources.FluentD = nil
-			resources.DinD = nil
-
 			if override.CCLauncher != nil {
 				overrideResources(resources.CCLauncher, initResources(override.CCLauncher))
 			}
@@ -513,22 +488,6 @@ func (peer *Peer) GetUpdateResources(current, override *current.PeerResources) (
 			}
 		}
 
-		if override.DinD != nil {
-			if override.DinD.Requests == nil {
-				override.DinD.Requests = override.DinD.Limits
-			}
-			if override.DinD.Limits == nil {
-				override.DinD.Limits = override.DinD.Requests
-			}
-
-			if override.DinD.Requests != nil {
-				resources.DinD.Requests = override.DinD.Requests
-			}
-			if override.DinD.Limits != nil {
-				resources.DinD.Limits = override.DinD.Limits
-			}
-		}
-
 		if override.CouchDB != nil {
 			if override.CouchDB.Requests == nil {
 				override.CouchDB.Requests = override.CouchDB.Limits
@@ -558,22 +517,6 @@ func (peer *Peer) GetUpdateResources(current, override *current.PeerResources) (
 			}
 			if override.GRPCProxy.Limits != nil {
 				resources.GRPCProxy.Limits = override.GRPCProxy.Limits
-			}
-		}
-
-		if override.FluentD != nil {
-			if override.FluentD.Requests == nil {
-				override.FluentD.Requests = override.FluentD.Limits
-			}
-			if override.FluentD.Limits == nil {
-				override.FluentD.Limits = override.FluentD.Requests
-			}
-
-			if override.FluentD.Requests != nil {
-				resources.FluentD.Requests = override.FluentD.Requests
-			}
-			if override.FluentD.Limits != nil {
-				resources.FluentD.Limits = override.FluentD.Limits
 			}
 		}
 
@@ -663,18 +606,11 @@ func (peer *Peer) GetIndividualResources(individualResources string, allResource
 	if allResources.Init != nil {
 		resources.Init = allResources.Init
 	}
-	if allResources.DinD != nil {
-		resources.DinD = allResources.DinD
-	}
-	if allResources.FluentD != nil {
-		resources.FluentD = allResources.FluentD
-	}
+
 	if util.GetMajorRelease(fabricVersion) == 2 {
 		if allResources.CCLauncher != nil {
 			resources.CCLauncher = allResources.CCLauncher
 		}
-		resources.DinD = nil
-		resources.FluentD = nil
 	}
 	if allResources.Enroller != nil {
 		resources.Enroller = allResources.Enroller

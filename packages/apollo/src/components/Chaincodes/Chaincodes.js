@@ -13,10 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
 */
-import { OverflowMenu, OverflowMenuItem } from 'carbon-components-react';
+import { OverflowMenu, OverflowMenuItem } from "@carbon/react";
 import PropTypes from 'prop-types';
 import React, { Component } from 'react';
-import { withLocalize } from 'react-localize-redux';
+import { withTranslation } from 'react-i18next';
 import { connect } from 'react-redux';
 import emptyImage from '../../assets/images/empty_installed.svg';
 import { clearNotifications, showSuccess, updateState } from '../../redux/commonActions';
@@ -24,6 +24,7 @@ import Helper from '../../utils/helper';
 import InstallChaincodeModal from '../InstallChaincodeModal/InstallChaincodeModal';
 import InstantiateChaincodeModal from '../InstantiateChaincodeModal/InstantiateChaincodeModal';
 import ItemContainer from '../ItemContainer/ItemContainer';
+import ActionsHelper from '../../utils/actionsHelper';
 
 const SCOPE = 'chaincodes';
 
@@ -80,7 +81,7 @@ class Chaincodes extends Component {
 	};
 
 	overflowMenu = installed_chaincode => {
-		const translate = this.props.translate;
+		const translate = this.props.t;
 		let overflow = (
 			<OverflowMenu ariaLabel={translate('actions')}
 				flipped={true}
@@ -89,7 +90,7 @@ class Chaincodes extends Component {
 			>
 				<OverflowMenuItem
 					id="instantiate_modal"
-					className="bx--overflow-installed-item-btn"
+					className="cds--overflow-installed-item-btn"
 					wrapperClassName="overflow-installed-item"
 					itemText={translate('instantiate')}
 					onClick={() => {
@@ -101,7 +102,6 @@ class Chaincodes extends Component {
 		);
 		return overflow;
 	};
-
 	render() {
 		return (
 			<div>
@@ -143,6 +143,7 @@ class Chaincodes extends Component {
 								text: 'install_chaincode',
 								fn: this.openInstallChaincodeModal,
 								label: 'install_chaincode',
+								disabled: !ActionsHelper.canManageComponent(this.props.userInfo, this.props.feature_flags)
 							},
 						]}
 						disableAddItem={!this.props.peers || this.props.peers.length === 0}
@@ -187,16 +188,19 @@ Chaincodes.propTypes = {
 	updateState: PropTypes.func,
 	showSuccess: PropTypes.func,
 	clearNotifications: PropTypes.func,
-	translate: PropTypes.func, // Provided by withLocalize
+	t: PropTypes.func, // Provided by withTranslation()
 };
 
 export default connect(
 	state => {
-		return Helper.mapStateToProps(state[SCOPE], dataProps);
+		let newProps = Helper.mapStateToProps(state[SCOPE], dataProps);
+		newProps['userInfo'] = state['userInfo'] ? state['userInfo'] : null;
+		newProps['feature_flags'] = state['settings'] ? state['settings']['feature_flags'] : null;
+		return newProps;
 	},
 	{
 		updateState,
 		showSuccess,
 		clearNotifications,
 	}
-)(withLocalize(Chaincodes));
+)(withTranslation()(Chaincodes));

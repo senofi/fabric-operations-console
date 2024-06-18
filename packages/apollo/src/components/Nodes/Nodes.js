@@ -26,13 +26,14 @@ import PeersComponent from '../Peers/Peers';
 import WelcomeMessage from '../WelcomeMessage/WelcomeMessage';
 import ServiceInstanceRestApi from '../../rest/ServiceInstanceApi';
 import Logger from '../Log/Logger';
+import withRouter from '../../hoc/withRouter';
 
 const SCOPE = 'main';
 const Log = new Logger(SCOPE);
 
 class Nodes extends Component {
 	componentDidMount() {
-		this.props.showBreadcrumb('nodes', {}, this.props.history.location.pathname, true);
+		this.props.showBreadcrumb('nodes', {}, this.props.location.pathname, true);
 		ServiceInstanceRestApi.getClusterStatus()
 			.then(resp => {
 				if (resp.info.state !== 'normal') {
@@ -64,30 +65,32 @@ class Nodes extends Component {
 	render() {
 		return (
 			<PageContainer>
-				<div className="bx--row">
-					<div className="bx--col-lg-13">
-						<WelcomeMessage />
-						<PageHeader
-							history={this.props.history}
-							headerName="nodes"
-							showCertNotice={this.props.showCertNotice}
-							createdArr={this.props.createdArr}
-							staticHeader
-						/>
-						<div className="ibp-nodes-section">
-							<PeersComponent history={this.props.history} />
-						</div>
-						<div className="ibp-nodes-section">
-							<CertificateAuthority
-								history={this.props.history}
-								onCreate={this.triggerCertNotice}
-							/>
-						</div>
-						<div className="ibp-nodes-section">
-							<OrderersComponent history={this.props.history} />
-						</div>
-					</div>
+				{/* <Column> */}
+				<WelcomeMessage />
+
+				<PageHeader
+					history={this.props.history}
+					headerName="nodes"
+					showCertNotice={this.props.showCertNotice}
+					createdArr={this.props.createdArr}
+					staticHeader
+				/>
+
+				<div className="ibp-nodes-section">
+					<PeersComponent history={this.props.history} />
 				</div>
+
+				<div className="ibp-nodes-section">
+					<CertificateAuthority
+						history={this.props.history}
+						onCreate={this.triggerCertNotice}
+					/>
+				</div>
+
+				<div className="ibp-nodes-section">
+					<OrderersComponent history={this.props.history} />
+				</div>
+				{/* </Column> */}
 			</PageContainer>
 		);
 	}
@@ -114,4 +117,4 @@ export default connect(
 		showError,
 		updateState,
 	}
-)(Nodes);
+)(withRouter(Nodes));

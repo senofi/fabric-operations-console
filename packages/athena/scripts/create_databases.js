@@ -22,22 +22,34 @@ module.exports = (logger, t) => {
 	const couch_lib = t.couch_lib;
 
 	setup.createDatabasesAndDesignDocs = (cb) => {
-		const config_map = require('../json_docs/default_settings_doc.json').db_defaults;
+		const config_map = require('../json_docs/default_settings_doc.json').db_defaults;	// init with the defaults
+		const db_custom_names = require('../json_docs/default_settings_doc.json').db_custom_names;
+
 		const errs = [];
 
 		// check if config file db names are replacing names in the default file
 		for (let db in config_map) {									// copy config file setting -> default doc
+			let name2use = '';
+
+			// first look for custom names in default settings file
+			if (db_custom_names && db_custom_names[db] && typeof db_custom_names[db] === 'string') {
+				name2use = db_custom_names[db];
+			}
+
+			// then look for custom names in the config file
 			if (t.config_file && t.config_file.db_custom_names && t.config_file.db_custom_names[db] && typeof t.config_file.db_custom_names[db] === 'string') {
-				if (db === 'DB_SYSTEM') {								// if its not already set, stuff it into env too
-					if (!process.env['DB_SYSTEM']) {					// (env setting should override config)
-						logger.debug('[config file] custom db name:', db, '=', t.config_file.db_custom_names[db]);
-						process.env['DB_SYSTEM'] = t.config_file.db_custom_names[db];
-					}
-					config_map['DB_SYSTEM'].name = process.env['DB_SYSTEM'];
-				} else {
-					logger.debug('[config file] custom db name:', db, '=', t.config_file.db_custom_names[db]);
-					config_map[db].name = t.config_file.db_custom_names[db];
-				}
+				name2use = t.config_file.db_custom_names[db];
+			}
+
+			// then env
+			if (process.env[db]) {
+				name2use = process.env[db];							// an env setting should override config
+			}
+
+			if (name2use) {
+				logger.debug('[db startup] custom db name:', db, '=', name2use);
+				config_map[db].name = name2use;
+				process.env[db] = name2use;							// stuff it into env too
 			}
 		}
 
@@ -102,7 +114,7 @@ module.exports = (logger, t) => {
 			} else {
 				try {
 					const temp = t.fs.readFileSync(t.path.join(__dirname, doc), 'utf8');
-					fs_doc = t.yaml.safeLoad(temp);
+					fs_doc = t.yaml.load(temp);
 				} catch (e) {
 					logger.error('[db startup] unable to read yaml file. cannot add to database.', doc, e);
 					return cb_createDocs();
@@ -126,7 +138,6 @@ module.exports = (logger, t) => {
 				_id: fs_doc._id
 			};
 			couch_lib.getDoc(read_wr_opts, (err_getDoc, resp_getDoc) => {
-
 				// --- Does not exist ---- //
 				if (err_getDoc && err_getDoc.statusCode === 404) {
 					if (fs_doc && fs_doc._id === '00_settings_athena') {		// this doc is a little different
