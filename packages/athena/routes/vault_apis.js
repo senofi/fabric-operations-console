@@ -1,13 +1,23 @@
 const VaultClient = require('../vault/vault_client');
 
+const vaultConfigPath = '/server/conf/vault/vault-config.json';
+
 module.exports = function (logger, ev, t) {
 	const app = t.express.Router();
+	let vaultConfigurationAvailable = false;
 
 	let vaultData = {};
 	try {
-		vaultData = require('/server/conf/vault/vault-config.json');
+		// check if module /server/conf/vault/vault-config.json is available for import
+		require.resolve(vaultConfigPath);
+		vaultConfigurationAvailable = true;
+		vaultData = require(vaultConfigPath);
 	} catch (error) {
-		logger.error('Error while loading Vault configuration file! Error: ', error);
+		if (!vaultConfigurationAvailable) {
+			logger.warn(`Vault configuration is not available at path: ${vaultConfigPath}. Vault API will return error response with 404 status code.`);
+		} else {
+			logger.error('Error while loading Vault configuration file! Error: ', error);
+		}
 	}
 
 	// Vault initialisation
@@ -32,7 +42,6 @@ module.exports = function (logger, ev, t) {
 	const getIdentitySecretByName = async (name) => {
 		const secret = await vaultClient
 			.readSecret(name);
-
 		const {
 			data,
 			id,
