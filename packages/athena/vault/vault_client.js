@@ -15,7 +15,6 @@ class VaultClient {
 		this.logger = logger;
 		this.token = '';
 		this.isInitialized = false;
-		this.vaultData = {};
 		this.url = url;
 		this.apiVersion = apiVersion;
 		this.vaultIdentitiesPath = `${orgName}/data/${vaultPath}`;
@@ -28,18 +27,22 @@ class VaultClient {
 	}
 
 	async init() {
-		const passwordObject = { password: this.password };
-		await axios.post(this.loginPath,
-			passwordObject
-		)
-			.then(res => {
-				this.token = res.data.auth.client_token;
-				this.isInitialized = true;
-			})
-			.catch((error) => {
-				this.logger.error('Unable to login, an error has ocurred!', error.response.status);
-				throw error;
-			});
+		if (this.password && this.loginPath) {
+			const passwordObject = { password: this.password };
+			await axios.post(this.loginPath,
+				passwordObject
+			)
+				.then(res => {
+					this.token = res.data.auth.client_token;
+					this.isInitialized = true;
+				})
+				.catch((error) => {
+					this.logger.error('Unable to login, an error has ocurred!', error.response.status);
+					throw error;
+				});
+		} else {
+			this.logger.error('Unable to login, vault config is missing!');
+		}
 	}
 
 	async listSecrets(isRetried=false) {
@@ -48,7 +51,7 @@ class VaultClient {
 			.then(res => res.data.data.keys)
 			.catch(async (error) => {
 				if (!isRetried && error && error.response && (error.response.status === 401 || error.response.status === 403)) {
-					this.logger.info('Token expired, reinitializing...')
+					this.logger.info('Token expired, reinitializing...');
 					await this.init();
 					return await this.listSecrets(true);
 				}
@@ -63,7 +66,7 @@ class VaultClient {
 			.then(res => res.data.data.data)
 			.catch(async (error) => {
 				if (!isRetried && error && error.response && (error.response.status === 401 || error.response.status === 403)) {
-					this.logger.info('Token expired, reinitializing...')
+					this.logger.info('Token expired, reinitializing...');
 					await this.init();
 					return await this.readSecret(secretName, true);
 				}
@@ -83,7 +86,7 @@ class VaultClient {
 			.then(() => this.logger.debug('Successfully created!'))
 			.catch(async (error) => {
 				if (!isRetried && error && error.response && (error.response.status === 401 || error.response.status === 403)) {
-					this.logger.info('Token expired, reinitializing...')
+					this.logger.info('Token expired, reinitializing...');
 					await this.init();
 					return await this.upsertSecret(secretName, data, true);
 				}

@@ -17,9 +17,6 @@ import _ from 'lodash';
 import StitchApi from './StitchApi';
 import UserSettingsRestApi from './UserSettingsRestApi';
 import IdentityStoreFactory from '../identity_store/IdentityStoreFactory';
-import EncryptedLocalStoragePersistenceProvider from '../service/EncryptedLocalStoragePersistenceProvider';
-import VaultPersistenceProvider from '../service/VaultPersistenceProvider';
-// TODO: Check the usage of this module, it most probably has to be moved in the persistence providers
 import { EventsRestApi } from './EventsRestApi';
 const naturalSort = require('javascript-natural-sort');
 
