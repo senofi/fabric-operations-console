@@ -108,5 +108,5 @@ dist
 packages/athena/json_docs/json_validation/ibp_openapi_v3.publish.yaml
 packages/athena/env/dev.json
 
-# IDE files
+# IDEs
 .idea
