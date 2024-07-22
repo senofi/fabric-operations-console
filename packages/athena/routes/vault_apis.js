@@ -1,6 +1,7 @@
 const VaultClient = require('../vault/vault_client');
 
-const vaultConfigPath = '/server/conf/vault/vault-config.json';
+// const vaultConfigPath = '/server/conf/vault/vault-config.json';
+const vaultConfigPath = '/Users/lyubo/Projects/openidl/vault-config-local.json';
 
 module.exports = function (logger, ev, t) {
 	const app = t.express.Router();
@@ -14,9 +15,11 @@ module.exports = function (logger, ev, t) {
 		vaultData = require(vaultConfigPath);
 	} catch (error) {
 		if (!vaultConfigurationAvailable) {
-			logger.warn(`Vault configuration is not available at path: ${vaultConfigPath}. Vault API will return error response with 404 status code.`);
+			logger.warn(
+				`Vault configuration is not available at path: ${vaultConfigPath}. Vault API will return error response with 404 status code.`);
 		} else {
-			logger.error('Error while loading Vault configuration file! Error: ', error);
+			logger.error('Error while loading Vault configuration file! Error: ',
+				error);
 		}
 	}
 
@@ -34,7 +37,7 @@ module.exports = function (logger, ev, t) {
 		return res.status(404).json({
 			msg,
 			reason:
-			'Vault client is not initialised. This could be due failed login, failed initialisation, wrong Vault url, Vault server down, etc.'
+          'Vault client is not initialised. This could be due failed login, failed initialisation, wrong Vault url, Vault server down, etc.'
 		});
 	};
 
@@ -82,7 +85,7 @@ module.exports = function (logger, ev, t) {
 			logger.error(`${msg} Error: ${error}`);
 			res.status(t.ot_misc.get_code(error)).json({
 				msg,
-				reason: error
+				reason: error.message
 			});
 			return;
 		}
@@ -103,7 +106,7 @@ module.exports = function (logger, ev, t) {
 				logger.error(`${msg} Error: ${error}`);
 				res.status(t.ot_misc.get_code(error)).json({
 					msg,
-					reason: error
+					reason: error.message
 				});
 				return;
 			}
@@ -122,7 +125,7 @@ module.exports = function (logger, ev, t) {
 			logger.error(`${msg} Error: ${error}`);
 			res.status(t.ot_misc.get_code(error)).json({
 				msg,
-				reason: error
+				reason: error.message
 			});
 			return;
 		}
@@ -243,6 +246,58 @@ module.exports = function (logger, ev, t) {
 		res.status(200).json({ errors });
 	};
 
+	const deleteSecret = async (req, res) => {
+		const name = req.params.name;
+		if (!name) {
+			const symbols = {
+				'$PROPERTY_NAME': 'name',
+			};
+			return res
+				.status(400)
+				.json(t.validate.fmt_input_error(req,
+					[{ key: 'missing_required', symbols: symbols }]));
+		}
+
+		let secretMetadata;
+
+		try {
+			secretMetadata = await vaultClient
+				.getSecretMetadata(name);
+		} catch (e) {
+			return res.status(500).json({
+				msg: `Error when fetching secret metadata from Vault for identity [${name}]`,
+				reason: e.message
+			});
+		}
+
+		const versions = secretMetadata.versions;
+
+		if (versions) {
+			const versionsKeys = Object.keys(versions);
+			try {
+				await vaultClient
+					.destroySecretVersions(name, versionsKeys);
+			} catch (e) {
+				return res.status(500).json({
+					msg: `Error when destroying secret versions from Vault for identity [${name}]. Versions: ${versionsKeys}`,
+					reason: e.message
+				});
+			}
+		}
+
+		try {
+			await vaultClient
+				.deleteSecretMetadata(name);
+		} catch (e) {
+			return res.status(500).json({
+				msg: `Error when deleting secret metadata from Vault for identity [${name}]`,
+				reason: e.message
+			});
+		}
+
+		res.status(204).send();
+	};
+
 	// Routes definition
 	app.get(
 		'/api/v[23]/vault/identity/:name',
@@ -265,6 +320,13 @@ module.exports = function (logger, ev, t) {
 		upsertIdentitiesToVaultHandler
 	);
 
+	app.delete(
+		'/api/v[23]/vault/identity/:name',
+		t.middleware.verify_import_action_session,
+		checkIfVaultInitialisedMiddleware,
+		deleteSecret
+	);
+
 	app.get(
 		'/ak/api/v[23]/vault/identity/:name',
 		t.middleware.verify_view_action_ak,
@@ -284,6 +346,13 @@ module.exports = function (logger, ev, t) {
 		t.middleware.verify_import_action_ak,
 		checkIfVaultInitialisedMiddleware,
 		upsertIdentitiesToVaultHandler
+	);
+
+	app.delete(
+		'/ak/api/v[23]/vault/identity/:name',
+		t.middleware.verify_import_action_ak,
+		checkIfVaultInitialisedMiddleware,
+		deleteSecret
 	);
 	return app;
 };

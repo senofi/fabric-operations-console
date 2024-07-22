@@ -14,11 +14,13 @@ class VaultIdentityStorage {
 	}
 
 	async removeIdentity(name) {
-		throw new Error('Operation "remove identity" is not supported by VaultIdentityStorage.');
+		let url = `/api/v3/vault/identity/${name}`;
+		const results = await RestApi.delete(url);
+		return results;
 	}
 
 	canRemoveIdentity() {
-		return false;
+		return true;
 	}
 }
 
