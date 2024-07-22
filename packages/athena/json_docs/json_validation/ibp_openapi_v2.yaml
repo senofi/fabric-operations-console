@@ -2943,6 +2943,49 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/BaseErrorResponse'
+    delete:
+      tags:
+        - Delete identity in vault
+      summary: Delete identity by secret name
+      description: Delete the identity data by the name of the secret where the identity is stored.
+      operationId: delete_identity
+      parameters:
+        - in: path
+          name: name
+          description: The name of the identity.
+          required: true
+          schema:
+            type: string
+      x-ibm-events:
+        events:
+          - name: blockchain.identities.read
+      responses:
+        204:
+          description: Request was successful.
+        401:
+          description: Request is unauthorized (invalid credentials).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Unauthorized'
+        403:
+          description: Request is forbidden (credentials lack permission).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Forbidden'
+        '4XX':
+          description: Other error responses.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseErrorResponse'
+        '5XX':
+          description: Internal server error responses.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseErrorResponse'
   #
   #
   #

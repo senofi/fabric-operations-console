@@ -1,14 +1,18 @@
 const axios = require('axios');
 
+// const vaultConfigPath = '/server/conf/vault/vault-config.json';
+const vaultConfigPath = '/Users/lyubo/Projects/openidl/vault-config-local.json';
+
 class VaultClient {
 
 	constructor({
 		url,
-		apiVersion='v1',
+		apiVersion = 'v1',
 		username,
 		password,
-		orgName,
-		vaultPath
+		vaultPath,
+		vaultEnginePath,
+		authMethodPath
 	}, logger) {
 		this.username = username;
 		this.password = password;
@@ -17,9 +21,10 @@ class VaultClient {
 		this.isInitialized = false;
 		this.url = url;
 		this.apiVersion = apiVersion;
-		this.vaultIdentitiesPath = `${orgName}/data/${vaultPath}`;
-		this.vaultFolderContentPath = `${orgName}/metadata/${vaultPath}`;
-		this.loginPath = `${url}/${apiVersion}/auth/${orgName}/login/${username}`;
+		this.vaultIdentitiesPath = `${vaultEnginePath}/data/${vaultPath}`;
+		this.vaultMetadataPath = `${vaultEnginePath}/metadata/${vaultPath}`;
+		this.vaultDestroyPath = `${vaultEnginePath}/destroy/${vaultPath}`;
+		this.loginPath = `${url}/${apiVersion}/auth/${authMethodPath}/login/${username}`;
 	}
 
 	getIsInitialized() {
@@ -37,7 +42,8 @@ class VaultClient {
 					this.isInitialized = true;
 				})
 				.catch((error) => {
-					this.logger.error('Unable to login, an error has ocurred!', error.response.status);
+					this.logger.error('Unable to login, an error has ocurred!',
+						error.response.status);
 					throw error;
 				});
 		} else {
@@ -45,37 +51,100 @@ class VaultClient {
 		}
 	}
 
-	async listSecrets(isRetried=false) {
-		return axios.get(`${this.url}/${this.apiVersion}/${this.vaultFolderContentPath}?list=true`,
+	async listSecrets(isRetried = false) {
+		return axios.get(
+			`${this.url}/${this.apiVersion}/${this.vaultMetadataPath}?list=true`,
 			{ headers: { 'X-Vault-Token': this.token } })
 			.then(res => res.data.data.keys)
 			.catch(async (error) => {
-				if (!isRetried && error && error.response && (error.response.status === 401 || error.response.status === 403)) {
+				if (!isRetried && error && error.response && (error.response.status
+          === 401 || error.response.status === 403)) {
 					this.logger.info('Token expired, reinitializing...');
 					await this.init();
 					return await this.listSecrets(true);
 				}
-				this.logger.error('Unable to list secrets!', error);
+				this.logger.error('Unable to list secrets! \n', getAxiosErrorString(error));
 				throw error;
 			});
 	}
 
-	async readSecret(secretName, isRetried=false) {
-		return axios.get(`${this.url}/${this.apiVersion}/${this.vaultIdentitiesPath}/${secretName}`,
+	async getSecretMetadata(secretName, isRetried = false) {
+		return await axios.get(
+			`${this.url}/${this.apiVersion}/${this.vaultMetadataPath}/${secretName}`,
+			{ headers: { 'X-Vault-Token': this.token } })
+			.then(res => res.data.data)
+			.catch(async (error) => {
+				if (!isRetried && error && error.response && (error.response.status
+          === 401 || error.response.status === 403)) {
+					this.logger.info('Token expired, reinitializing...');
+					await this.init();
+					return await this.getSecretMetadata(secretName, true);
+				}
+				this.logger.error('Unable to get secret metadata!\n', getAxiosErrorString(error));
+				throw error;
+			});
+	}
+
+	async deleteSecretMetadata(secretName, isRetried = false) {
+		return axios.delete(
+			`${this.url}/${this.apiVersion}/${this.vaultMetadataPath}/${secretName}`,
+			{ headers: { 'X-Vault-Token': this.token } })
+			.then(res => res)
+			.catch(async (error) => {
+				if (!isRetried && error && error.response && (error.response.status
+          === 401 || error.response.status === 403)) {
+					this.logger.info('Token expired, reinitializing...');
+					await this.init();
+					return await this.deleteSecretMetadata(secretName, true);
+				}
+				this.logger.error('Unable to delete secret metadata!\n', getAxiosErrorString(error));
+				throw error;
+			});
+	}
+
+	async destroySecretVersions(secretName, secretVersions = [],
+		isRetried = false) {
+		return axios.post(
+			`${this.url}/${this.apiVersion}/${this.vaultDestroyPath}/${secretName}`,
+			{ versions: secretVersions },
+			{
+				headers: { 'X-Vault-Token': this.token }
+			})
+			.then(res => res.data.data)
+			.catch(async (error) => {
+				if (!isRetried && error && error.response && (error.response.status
+          === 401 || error.response.status === 403)) {
+					this.logger.info('Token expired, reinitializing...');
+					await this.init();
+					return await this.destroySecretVersions(secretName, secretVersions,
+						true);
+				}
+				this.logger.error(
+					`Unable to destroy secret versions! Secret name [${secretName}] Versions [${secretVersions
+          && secretVersions.join(', ')}] \n`, getAxiosErrorString(error));
+				throw error;
+			});
+
+	}
+
+	async readSecret(secretName, isRetried = false) {
+		return axios.get(
+			`${this.url}/${this.apiVersion}/${this.vaultIdentitiesPath}/${secretName}`,
 			{ headers: { 'X-Vault-Token': this.token } })
 			.then(res => res.data.data.data)
 			.catch(async (error) => {
-				if (!isRetried && error && error.response && (error.response.status === 401 || error.response.status === 403)) {
+				if (!isRetried && error && error.response && (error.response.status
+          === 401 || error.response.status === 403)) {
 					this.logger.info('Token expired, reinitializing...');
 					await this.init();
 					return await this.readSecret(secretName, true);
 				}
-				this.logger.error('Unable to read secret!', error);
+				this.logger.error('Unable to read secret! \n', getAxiosErrorString(error));
 				throw error;
 			});
 	}
 
-	async upsertSecret(secretName, data, isRetried=false) {
+	async upsertSecret(secretName, data, isRetried = false) {
 		return axios(
 			{
 				method: 'post',
@@ -85,15 +154,41 @@ class VaultClient {
 			})
 			.then(() => this.logger.debug('Successfully created!'))
 			.catch(async (error) => {
-				if (!isRetried && error && error.response && (error.response.status === 401 || error.response.status === 403)) {
+				if (!isRetried && error && error.response && (error.response.status
+          === 401 || error.response.status === 403)) {
 					this.logger.info('Token expired, reinitializing...');
 					await this.init();
 					return await this.upsertSecret(secretName, data, true);
 				}
-				this.logger.error('Unable to create secret!', error);
+				this.logger.error('Unable to create secret! \n', getAxiosErrorString(error));
 				throw error;
 			});
 	}
 }
+
+const getAxiosErrorString = (error) => {
+	const errors = [];
+	if (error.config) {
+		let config = error.config;
+		if (config.headers) {
+			config.headers['X-Vault-Token'] = '****';
+		}
+		errors.push(JSON.stringify(config));
+	}
+
+	if (error.response) {
+		// The request was made and the server responded with a status code
+		// that falls out of the range of 2xx
+		errors.push(JSON.stringify(error.response.data));
+		errors.push(error.response.status);
+		errors.push(JSON.stringify(error.response.headers));
+	} else if (error.request) {
+		errors.push(error.request);
+	} else {
+		errors.push(error.message);
+	}
+
+	return errors.join('\n');
+};
 
 module.exports = VaultClient;
