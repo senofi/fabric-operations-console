@@ -1,31 +1,10 @@
-const VaultClient = require('../vault/vault_client');
-
-// const vaultConfigPath = '/server/conf/vault/vault-config.json';
-const vaultConfigPath = '/Users/lyubo/Projects/openidl/vault-config-local.json';
-
+//------------------------------------------------------------
+// vault_apis.js - vault apis routes
+//------------------------------------------------------------
 module.exports = function (logger, ev, t) {
 	const app = t.express.Router();
-	let vaultConfigurationAvailable = false;
 
-	let vaultData = {};
-	try {
-		// check if module /server/conf/vault/vault-config.json is available for import
-		require.resolve(vaultConfigPath);
-		vaultConfigurationAvailable = true;
-		vaultData = require(vaultConfigPath);
-	} catch (error) {
-		if (!vaultConfigurationAvailable) {
-			logger.warn(
-				`Vault configuration is not available at path: ${vaultConfigPath}. Vault API will return error response with 404 status code.`);
-		} else {
-			logger.error('Error while loading Vault configuration file! Error: ',
-				error);
-		}
-	}
-
-	// Vault initialisation
-	const vaultClient = new VaultClient(vaultData, logger);
-	vaultClient.init();
+	const vaultClient = t.vault_client
 
 	// Check if Vault client initialised middleware
 	const checkIfVaultInitialisedMiddleware = (req, res, next) => {

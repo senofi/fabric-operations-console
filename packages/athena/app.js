@@ -408,6 +408,7 @@ function setup_routes_and_start() {
 	// ---------------
 	// Add other libs to tools
 	// ---------------
+	tools.vault_client = require('./libs/vault_client_lib.js')(logger, ev, tools);
 	tools.caches = require('./app_setup/cache.js')(logger, ev, tools);
 	tools.ca_lib = require('./libs/ca_lib.js')(logger, ev, tools);
 	tools.proxy_lib = require('./libs/proxy_lib.js')(logger, ev, tools);

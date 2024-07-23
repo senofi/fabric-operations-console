@@ -1,7 +1,6 @@
 const axios = require('axios');
 
-// const vaultConfigPath = '/server/conf/vault/vault-config.json';
-const vaultConfigPath = '/Users/lyubo/Projects/openidl/vault-config-local.json';
+const vaultConfigPath = '/server/conf/vault/vault-config.json';
 
 class VaultClient {
 
@@ -191,4 +190,27 @@ const getAxiosErrorString = (error) => {
 	return errors.join('\n');
 };
 
-module.exports = VaultClient;
+module.exports = function (logger, ev, t) {
+	let vaultConfigurationAvailable = false;
+
+	let vaultData = {};
+	try {
+		// check if module /server/conf/vault/vault-config.json is available for import
+		require.resolve(vaultConfigPath);
+		vaultConfigurationAvailable = true;
+		vaultData = require(vaultConfigPath);
+	} catch (error) {
+		if (!vaultConfigurationAvailable) {
+			logger.warn(
+				`Vault configuration is not available at path: ${vaultConfigPath}. Vault API will return error response with 404 status code.`);
+		} else {
+			logger.error('Error while loading Vault configuration file! Error: ',
+				error);
+		}
+	}
+
+	// Vault initialisation
+	const vaultClient = new VaultClient(vaultData, logger);
+	vaultClient.init();
+	return vaultClient;
+};
