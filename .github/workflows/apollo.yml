@@ -3,6 +3,7 @@ name: Apollo CI
 on:
   pull_request:
     branches: [ main ]
+  workflow_call:
 
 defaults:
   run:
