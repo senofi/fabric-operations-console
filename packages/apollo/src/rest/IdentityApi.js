@@ -25,11 +25,15 @@ const LOCAL_STORAGE_KEY = 'ibp_identities';
 class IdentityApi {
 	static userInfo = null;
 	static identityData = null;
-	static store = IdentityStoreFactory.getInstance()
+	static store = null;
 
 	static PEER_NODE_TYPE = 'peers';
 	static CA_NODE_TYPE = 'cas';
 	static ORDERER_NODE_TYPE = 'orderer';
+
+	static init(identityStorageType) {
+		IdentityApi.store = IdentityStoreFactory.getInstance(identityStorageType);
+	}
 
 	static async getKey() {
 		const returnKey = function () {
