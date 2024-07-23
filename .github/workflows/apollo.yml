@@ -2,7 +2,7 @@ name: Apollo CI
 
 on:
   pull_request:
-    branches: [ main ]
+    branches: [ '**' ]
 
 defaults:
   run:
