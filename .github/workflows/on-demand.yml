@@ -16,7 +16,6 @@ jobs:
     needs: common
     uses: ./.github/workflows/stitch.yml
   grpc-web-docker-build:
-    needs: [stitch, athena, apollo]
     uses: ./.github/workflows/grpc-web-docker.yml
   deploy:
     needs: grpc-web-docker-build
