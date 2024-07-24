@@ -2,6 +2,7 @@ name: Build gRPC Web Build
 
 on:
   workflow_dispatch:
+  workflow_call:
 
 jobs:
   grpc-web:
