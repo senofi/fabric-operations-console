@@ -11410,46 +11410,6 @@ components:
           type: string
           description: The latest config block of the system channel. Base 64 encoded. To obtain this block, you must use a **Fabric API**. This config block should list this ordering node as a valid consenter on the system-channel.
           example: bWFzc2l2ZSBiaW5hcnkgb2YgYSBjb25maWcgYmxvY2sgd291bGQgYmUgaGVyZSBpZiB0aGlzIHdhcyByZWFsLCBwbGVhc2UgZG9udCBzZW5kIHRoaXM=
-
-    StoreChannelConfigBlock:
-      type: object
-      required:
-        - channel
-        - block_b64
-      properties:
-        channel:
-          type: string
-          x-validate_regex_must_pass: channel_name
-          x-validate_regex_error_msg: "The channel name can contain only lowercase characters, numbers, or dashes, and should start with a letter."
-        block_b64:
-          type: string
-    StoreChannelConfigBlockResponse:
-      type: object
-      properties:
-        block_b64:
-          type: string
-          example: accepted
-        channel:
-          type: string
-          description: name of the channel.
-          example: mychannel
-        id:
-          type: string
-          description: id of the channel.
-          example: channelid
-        timestamp:
-          type: number
-          description: UNIX timestamp of component creation, UTC, ms.
-          example: 1549490200312
-        type:
-          type: string
-          description: block type
-          example: config-block
-        visibility:
-          type: string
-          description: visiblity level
-          example: inbox
-
   #
   #
   #
