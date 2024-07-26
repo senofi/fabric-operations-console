@@ -6702,6 +6702,10 @@ components:
               type: string
               example: v0.4.31
               description: The tag of the build powering this Fabric Operations console
+        IDENTITY_STORE_TYPE:
+          type: string
+          description: The type of identity store being used. 'vault' or 'local'
+          example: 'vault'
 
     GetNotificationsResponse:
       type: object
