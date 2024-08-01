@@ -3,6 +3,7 @@ name: Athena CI
 on:
   pull_request:
     branches: [ '**' ]
+  workflow_call:
 
 defaults:
   run:

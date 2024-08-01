@@ -3,6 +3,7 @@ name: Common CI
 on:
   pull_request:
     branches: [ '**' ]
+  workflow_call:
 
 jobs:
   audit:

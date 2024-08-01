@@ -2,9 +2,12 @@ name: Docker
 
 on:
   push:
+    tags:
+      - '*'
     branches:
       - main
   workflow_dispatch:
+  workflow_call:
 
 jobs:
   docker:
