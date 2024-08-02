@@ -18,5 +18,4 @@ jobs:
   grpc-web-docker-build:
     uses: ./.github/workflows/grpc-web-docker.yml
   deploy:
-    needs: grpc-web-docker-build
     uses: ./.github/workflows/deploy.yml
