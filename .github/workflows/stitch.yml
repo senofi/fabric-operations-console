@@ -2,7 +2,7 @@ name: Stitch CI
 
 on:
   pull_request:
-    branches: [ '**' ]
+    branches: [ main ]
 
 defaults:
   run:
