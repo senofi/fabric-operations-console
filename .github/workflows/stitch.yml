@@ -2,7 +2,8 @@ name: Stitch CI
 
 on:
   pull_request:
-    branches: [ main ]
+    branches: [ '**' ]
+  workflow_call:
 
 defaults:
   run:
