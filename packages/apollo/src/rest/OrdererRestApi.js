@@ -598,6 +598,7 @@ class OrdererRestApi {
 					details: error,
 				});
 			}
+			test.msp_id = options.requestingMspId;
 			test.cert = mspAdminIdentities[0].cert;
 			test.private_key = mspAdminIdentities[0].private_key;
 		}
