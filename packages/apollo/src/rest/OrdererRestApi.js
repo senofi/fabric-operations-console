@@ -590,7 +590,8 @@ class OrdererRestApi {
 			//read the certs/key of the MSP admin identity
 			const requestingMsp = await MspRestApi.getMSPDetails(options.requestingMspId);
 			Log.info("Requesting MSP: ", requestingMsp);
-			let mspAdminIdentities = await IdentityApi.getIdentitiesForMsp(requestingMsp);
+			let mspIdentities = await IdentityApi.getIdentitiesForMsp(requestingMsp);
+			let mspAdminIdentities = mspIdentities.filter( (identity) => requestingMsp.admins.includes(identity.cert));
 			if(mspAdminIdentities.length < 1) {
 				return Promise.reject({
 					title: 'error_join_channel_no_admins_for_msp',
