@@ -587,7 +587,7 @@ class OrdererRestApi {
 			};
 		if (!test.cert && !test.private_key && options.requestingMspId) {
 			//read the certs/key of the MSP admin identity
-			const requestingMsp = MspRestApi.getMSPDetails(options.requestingMspId);
+			const requestingMsp = await MspRestApi.getMSPDetails(options.requestingMspId);
 			Log.info("Requesting MSP: ", requestingMsp);
 
 		}
