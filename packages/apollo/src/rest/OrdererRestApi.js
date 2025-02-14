@@ -23,6 +23,7 @@ import ChannelApi from './ChannelApi';
 import { NodeRestApi } from './NodeRestApi';
 import { RestApi } from './RestApi';
 import { MspRestApi } from './MspRestApi';
+import { IdentityApi } from './IdentityApi';
 const bytes = require('bytes');
 const org_template = require('../utils/configtx/org_template.json');
 const urlParser = require('url');
@@ -590,6 +591,15 @@ class OrdererRestApi {
 			const requestingMsp = await MspRestApi.getMSPDetails(options.requestingMspId);
 			Log.info("Requesting MSP: ", requestingMsp);
 
+			const mspAdminIdentities = await IdentityApi.getIdentitiesForCerts(requestingMsp.admins);
+			if(mspAdminIdentities.length < 1) {
+				return Promise.reject({
+					title: 'error_join_channel_no_admins_for_msp',
+					details: error,
+				});
+			}
+			test.cert = mspAdminIdentities[0].cert;
+			test.private_key = mspAdminIdentities[0].private_key;
 		}
 		const opts = {
 			msp_id: test.msp_id,
