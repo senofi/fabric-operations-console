@@ -23,7 +23,7 @@ import ChannelApi from './ChannelApi';
 import { NodeRestApi } from './NodeRestApi';
 import { RestApi } from './RestApi';
 import { MspRestApi } from './MspRestApi';
-import { IdentityApi } from './IdentityApi';
+import IdentityApi from './IdentityApi';
 const bytes = require('bytes');
 const org_template = require('../utils/configtx/org_template.json');
 const urlParser = require('url');
