@@ -367,16 +367,17 @@ class JoinChannelModal extends React.Component {
 		} catch (error) {
 			this.props.updateState(SCOPE, { loading: false });
 			Log.error('An error occurred when filtering peer list', error);
-			if(mspId) {
-				return Promise.reject({
-					title: error.code || 'error_join_channel_not_found',
-					details: error,
-					translateOptions: {
-						channelId: selectedChannel,
-						ordererId: selectedOrderer.node_id
-					},
-				});
+			if(error.code && error.code === "no_certs_available") {
+				return;
 			}
+			return Promise.reject({
+				title: error.code || 'error_join_channel_not_found',
+				details: error,
+				translateOptions: {
+					channelId: selectedChannel,
+					ordererId: selectedOrderer.node_id
+				},
+			});
 		}
 	}
 

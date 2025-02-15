@@ -592,15 +592,11 @@ class OrdererRestApi {
 			Log.info("Requesting MSP: ", requestingMsp);
 			let mspIdentities = await IdentityApi.getIdentitiesForMsp(requestingMsp);
 			let mspAdminIdentities = mspIdentities.filter( (identity) => requestingMsp.admins.includes(identity.cert));
-			if(mspAdminIdentities.length < 1) {
-				return Promise.reject({
-					title: 'error_join_channel_no_admins_for_msp',
-					details: error,
-				});
+			if (mspAdminIdentities.length > 1) {
+				test.msp_id = options.requestingMspId;
+				test.cert = mspAdminIdentities[0].cert;
+				test.private_key = mspAdminIdentities[0].private_key;
 			}
-			test.msp_id = options.requestingMspId;
-			test.cert = mspAdminIdentities[0].cert;
-			test.private_key = mspAdminIdentities[0].private_key;
 		}
 		const opts = {
 			msp_id: test.msp_id,
@@ -614,6 +610,9 @@ class OrdererRestApi {
 
 		let resp;
 		try {
+			if (!opts.client_cert_b64pem || !opts.client_prv_key_b64pem) {
+				throw { code: 'no_certs_available' };
+			}
 			let getChannelConfigBlockFromOrderer;
 			if (options.genesis) {
 				getChannelConfigBlockFromOrderer = promisify(window.stitch.getChannelsGenesisFromOrderer);
