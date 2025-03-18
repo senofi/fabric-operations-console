@@ -22,6 +22,8 @@ import Helper from '../utils/helper';
 import ChannelApi from './ChannelApi';
 import { NodeRestApi } from './NodeRestApi';
 import { RestApi } from './RestApi';
+import { MspRestApi } from './MspRestApi';
+import IdentityApi from './IdentityApi';
 const bytes = require('bytes');
 const org_template = require('../utils/configtx/org_template.json');
 const urlParser = require('url');
@@ -577,7 +579,7 @@ class OrdererRestApi {
 			}
 		}
 		const ordererCerts = OrdererRestApi.getCertsAssociatedWithMsp(orderer.associatedIdentities, orderer.msp_id);
-		const test = options.altUrls
+		let test = options.altUrls
 			? options.altUrls.pop()
 			: {
 				url: orderer.url2use,
@@ -585,6 +587,18 @@ class OrdererRestApi {
 				cert: ordererCerts ? ordererCerts.cert : null,
 				private_key: ordererCerts ? ordererCerts.private_key : null,
 			};
+		if (!test.cert && !test.private_key && options.requestingMspId) {
+			//read the certs/key of the MSP admin identity
+			const requestingMsp = await MspRestApi.getMSPDetails(options.requestingMspId);
+			Log.info("Requesting MSP: ", requestingMsp);
+			let mspIdentities = await IdentityApi.getIdentitiesForMsp(requestingMsp);
+			let mspAdminIdentities = mspIdentities.filter( (identity) => requestingMsp.admins.includes(identity.cert));
+			if (mspAdminIdentities.length > 1) {
+				test.msp_id = options.requestingMspId;
+				test.cert = mspAdminIdentities[0].cert;
+				test.private_key = mspAdminIdentities[0].private_key;
+			}
+		}
 		const opts = {
 			msp_id: test.msp_id,
 			client_cert_b64pem: test.cert,
@@ -594,8 +608,12 @@ class OrdererRestApi {
 			include_bin: true,
 			channel_id: options.channelId,
 		};
+
 		let resp;
 		try {
+			if (!opts.client_cert_b64pem || !opts.client_prv_key_b64pem) {
+				throw { code: 'no_certs_available' };
+			}
 			let getChannelConfigBlockFromOrderer;
 			if (options.genesis) {
 				getChannelConfigBlockFromOrderer = promisify(window.stitch.getChannelsGenesisFromOrderer);
